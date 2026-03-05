@@ -1,0 +1,229 @@
+---
+title: FLAC Codec
+description: Free Lossless Audio Codec (FLAC) decoder and demuxer
+---
+
+## Overview
+
+Symphonia provides a complete pure Rust implementation of the Free Lossless Audio Codec (FLAC), including both decoder and demuxer. FLAC is a popular lossless audio compression format that typically achieves 40-50% compression ratio.
+
+## Feature Flag
+
+To enable FLAC support, add the `flac` feature to your `Cargo.toml`:
+
+```toml
+[dependencies]
+symphonia = { version = "0.5", features = ["flac"] }
+```
+
+Or use the standalone crate:
+
+```toml
+[dependencies]
+symphonia-bundle-flac = "0.5"
+```
+
+## Status
+
+**Status**: Excellent
+
+- Decoding: Fully supported
+- Gapless Playback: Yes
+- Native FLAC files: Yes
+- OGG-FLAC: Yes (requires `ogg` feature)
+
+## Codec Type
+
+```rust
+use symphonia::core::codecs::CODEC_TYPE_FLAC;
+```
+
+## Decoder
+
+The FLAC decoder is implemented by the `FlacDecoder` struct:
+
+```rust
+use symphonia_bundle_flac::FlacDecoder;
+use symphonia::core::codecs::{Decoder, DecoderOptions};
+
+// Create decoder from codec parameters
+let mut decoder = FlacDecoder::try_new(&codec_params, &DecoderOptions::default())?;
+
+// Decode a packet
+let decoded = decoder.decode(&packet)?;
+```
+
+## Format Reader
+
+For native FLAC files, use the `FlacReader`:
+
+```rust
+use symphonia_bundle_flac::FlacReader;
+use symphonia::core::formats::{FormatReader, FormatOptions};
+use symphonia::core::io::MediaSourceStream;
+
+let mss = MediaSourceStream::new(source, Default::default());
+let mut reader = FlacReader::try_new(mss, &FormatOptions::default())?;
+
+// Access track information
+let track = &reader.tracks()[0];
+
+// Read packets
+while let Ok(packet) = reader.next_packet() {
+    // Decode packet...
+}
+```
+
+## Supported Features
+
+### Bit Depths
+
+- 8-bit
+- 16-bit
+- 24-bit
+- 32-bit (experimental)
+
+### Sample Rates
+
+All sample rates from 1 Hz to 655,350 Hz, including:
+- 8 kHz, 11.025 kHz, 12 kHz
+- 16 kHz, 22.05 kHz, 24 kHz
+- 32 kHz, 44.1 kHz, 48 kHz
+- 88.2 kHz, 96 kHz
+- 176.4 kHz, 192 kHz
+
+### Channels
+
+- Mono (1.0)
+- Stereo (2.0)
+- 3.0 through 8.0 configurations
+- Channel counts up to 8
+
+### Prediction Methods
+
+- Constant
+- Verbatim
+- Fixed Linear Prediction (orders 0-4)
+- Linear Prediction Coding (LPC, orders 1-32)
+
+### Block Sizes
+
+Variable block sizes from 16 to 65,535 samples
+
+## Metadata Support
+
+FLAC supports extensive metadata through Vorbis Comments:
+
+```rust
+use symphonia::core::meta::MetadataOptions;
+
+let probed = symphonia::default::get_probe()
+    .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())?;
+
+// Access metadata
+if let Some(metadata_rev) = probed.format.metadata().current() {
+    for tag in metadata_rev.tags() {
+        println!("{}: {}", tag.std_key.as_ref().unwrap_or(&tag.key), tag.value);
+    }
+}
+```
+
+Supported metadata blocks:
+- STREAMINFO (required)
+- VORBIS_COMMENT (tags)
+- PICTURE (embedded artwork)
+- CUESHEET
+- SEEKTABLE
+- APPLICATION
+
+## Usage Example
+
+```rust
+use symphonia::core::codecs::{CODEC_TYPE_FLAC, DecoderOptions};
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+fn decode_flac_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Open the media source
+    let file = Box::new(File::open(path)?);
+    let mss = MediaSourceStream::new(file, Default::default());
+
+    // Create a hint
+    let mut hint = Hint::new();
+    hint.with_extension("flac");
+
+    // Probe the media source
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())?;
+
+    let mut format = probed.format;
+    let track = &format.tracks()[0];
+
+    // Create the decoder
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())?;
+
+    // Decode packets
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(_) => break,
+        };
+
+        let decoded = decoder.decode(&packet)?;
+        // Process decoded audio (lossless PCM)...
+    }
+
+    Ok(())
+}
+```
+
+## Seeking Support
+
+FLAC supports efficient seeking:
+
+```rust
+use symphonia::core::formats::{SeekMode, SeekTo};
+
+// Seek to 5 seconds
+let seek_to = SeekTo::Time { time: 5.0, track_id: None };
+format.seek(SeekMode::Accurate, seek_to)?;
+```
+
+## Performance
+
+- Pure Rust implementation with no unsafe code
+- Highly optimized predictor implementations
+- SIMD optimizations available with feature flags:
+  - `opt-simd-sse` - SSE optimizations
+  - `opt-simd-avx` - AVX optimizations
+  - `opt-simd-neon` - ARM NEON optimizations
+
+```toml
+[dependencies]
+symphonia = { version = "0.5", features = ["flac", "opt-simd-sse"] }
+```
+
+## Limitations
+
+- None known for standard FLAC files
+- Full compliance with FLAC 1.3.x specification
+
+## Verification
+
+The decoder can verify MD5 checksums embedded in FLAC files for data integrity.
+
+## Documentation
+
+- [crates.io](https://crates.io/crates/symphonia-bundle-flac)
+- [API Documentation](https://docs.rs/symphonia-bundle-flac)
+- [FLAC Specification](https://xiph.org/flac/format.html)
+
+## See Also
+
+- [Core Concepts](/api/core/overview)
+- [Decoding Guide](/guides/decoding-audio)
+- [OGG Format](/api/formats/ogg)

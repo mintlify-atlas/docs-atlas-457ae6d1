@@ -1,0 +1,614 @@
+---
+title: 'Decoder'
+description: 'Audio codec decoder interface for decoding packets into audio buffers'
+---
+
+## Overview
+
+The `Decoder` trait implements codec decode algorithms. Decoders consume `Packet`s from a `FormatReader` and produce `AudioBuffer`s containing decoded PCM audio samples.
+
+## Decoder Trait
+
+### Definition
+
+```rust
+pub trait Decoder: Send + Sync {
+    fn try_new(params: &CodecParameters, options: &DecoderOptions) -> Result<Self>
+    where
+        Self: Sized;
+    fn supported_codecs() -> &'static [CodecDescriptor]
+    where
+        Self: Sized;
+    fn reset(&mut self);
+    fn codec_params(&self) -> &CodecParameters;
+    fn decode(&mut self, packet: &Packet) -> Result<AudioBufferRef<'_>>;
+    fn finalize(&mut self) -> FinalizeResult;
+    fn last_decoded(&self) -> AudioBufferRef<'_>;
+}
+```
+
+A decoder that consumes encoded packets and produces decoded audio buffers.
+
+### Methods
+
+#### try_new
+
+```rust
+fn try_new(params: &CodecParameters, options: &DecoderOptions) -> Result<Self>
+where
+    Self: Sized
+```
+
+Attempt to instantiate a decoder using the provided codec parameters and options.
+
+<ParamField path="params" type="&CodecParameters">
+  Codec parameters from the track
+</ParamField>
+
+<ParamField path="options" type="&DecoderOptions">
+  Decoder options (verification, etc.)
+</ParamField>
+
+<ResponseField name="Self" type="Result<Self>">
+  The instantiated decoder or an error
+</ResponseField>
+
+**Example:**
+
+```rust
+use symphonia::core::codecs::{DecoderOptions, CodecParameters};
+use symphonia::codec_vorbis::VorbisDecoder;
+
+let params = CodecParameters::new();
+let options = DecoderOptions { verify: true };
+let decoder = VorbisDecoder::try_new(&params, &options)?;
+```
+
+#### supported_codecs
+
+```rust
+fn supported_codecs() -> &'static [CodecDescriptor]
+where
+    Self: Sized
+```
+
+Get a list of codec descriptors for the codecs supported by this decoder.
+
+<ResponseField name="&[CodecDescriptor]" type="&'static [CodecDescriptor]">
+  List of supported codec descriptors
+</ResponseField>
+
+#### decode
+
+```rust
+fn decode(&mut self, packet: &Packet) -> Result<AudioBufferRef<'_>>
+```
+
+Decode a packet of audio data and return a generic (untyped) audio buffer of the decoded audio.
+
+<ParamField path="packet" type="&Packet">
+  The packet to decode
+</ParamField>
+
+<ResponseField name="AudioBufferRef" type="Result<AudioBufferRef<'_>>">
+  A copy-on-write reference to the decoded audio buffer
+</ResponseField>
+
+<Warning>
+If a `DecodeError` or `IoError` is returned, the packet is undecodeable and should be discarded. If `ResetRequired` is returned, the decoder must be recreated. All other errors are unrecoverable.
+</Warning>
+
+<Note>
+Implementors must clear the internal buffer if an error occurs during decoding.
+</Note>
+
+**Example:**
+
+```rust
+loop {
+    let packet = format.next_packet()?;
+    
+    if packet.track_id() != track.id {
+        continue;
+    }
+
+    match decoder.decode(&packet) {
+        Ok(decoded) => {
+            // Process decoded audio
+            println!("Decoded {} frames", decoded.frames());
+        },
+        Err(Error::DecodeError(_)) => {
+            // Skip bad packet and continue
+            continue;
+        },
+        Err(err) => return Err(err),
+    }
+}
+```
+
+#### reset
+
+```rust
+fn reset(&mut self)
+```
+
+Reset the decoder state.
+
+<Note>
+A decoder must be reset when the next packet is discontinuous with respect to the last decoded packet. This occurs after a seek operation.
+</Note>
+
+**Example:**
+
+```rust
+// Seek to a new position
+let seeked = format.seek(SeekMode::Accurate, seek_to)?;
+
+// Reset decoder after seek
+decoder.reset();
+
+// Continue decoding from new position
+let packet = format.next_packet()?;
+let decoded = decoder.decode(&packet)?;
+```
+
+#### codec_params
+
+```rust
+fn codec_params(&self) -> &CodecParameters
+```
+
+Get a reference to the updated codec parameters.
+
+<ResponseField name="&CodecParameters" type="&CodecParameters">
+  The current codec parameters (may be updated from initial parameters)
+</ResponseField>
+
+**Example:**
+
+```rust
+let params = decoder.codec_params();
+println!("Sample rate: {:?}", params.sample_rate);
+println!("Channels: {:?}", params.channels);
+```
+
+#### last_decoded
+
+```rust
+fn last_decoded(&self) -> AudioBufferRef<'_>
+```
+
+Get read access to the internal audio buffer containing the last decoded packet.
+
+<ResponseField name="AudioBufferRef" type="AudioBufferRef<'_>">
+  Reference to the last decoded audio buffer
+</ResponseField>
+
+<Note>
+If the last call to `decode` resulted in an error, the returned audio buffer will have zero length.
+</Note>
+
+**Example:**
+
+```rust
+let decoded = decoder.decode(&packet)?;
+let buffer = decoder.last_decoded();
+println!("Last decoded: {} frames", buffer.frames());
+```
+
+#### finalize
+
+```rust
+fn finalize(&mut self) -> FinalizeResult
+```
+
+Optionally obtain post-decode information such as verification status.
+
+<ResponseField name="FinalizeResult" type="FinalizeResult">
+  Information available only after decoding is complete
+</ResponseField>
+
+**Example:**
+
+```rust
+// After decoding all packets
+let result = decoder.finalize();
+if let Some(verify_ok) = result.verify_ok {
+    if verify_ok {
+        println!("Verification passed!");
+    } else {
+        println!("Verification failed!");
+    }
+}
+```
+
+## Supporting Types
+
+### CodecParameters
+
+```rust
+pub struct CodecParameters {
+    pub codec: CodecType,
+    pub sample_rate: Option<u32>,
+    pub time_base: Option<TimeBase>,
+    pub n_frames: Option<u64>,
+    pub start_ts: u64,
+    pub sample_format: Option<SampleFormat>,
+    pub bits_per_sample: Option<u32>,
+    pub bits_per_coded_sample: Option<u32>,
+    pub channels: Option<Channels>,
+    pub channel_layout: Option<Layout>,
+    pub delay: Option<u32>,
+    pub padding: Option<u32>,
+    pub max_frames_per_packet: Option<u64>,
+    pub packet_data_integrity: bool,
+    pub verification_check: Option<VerificationCheck>,
+    pub frames_per_block: Option<u64>,
+    pub extra_data: Option<Box<[u8]>>,
+}
+```
+
+Codec parameters stored in container format headers and metadata.
+
+<ParamField path="codec" type="CodecType">
+  The codec type identifier
+</ParamField>
+
+<ParamField path="sample_rate" type="Option<u32>">
+  Sample rate of the audio in Hz
+</ParamField>
+
+<ParamField path="time_base" type="Option<TimeBase>">
+  Timebase of the stream (length of one tick in seconds)
+</ParamField>
+
+<ParamField path="n_frames" type="Option<u64>">
+  Total length of the stream in frames
+</ParamField>
+
+<ParamField path="start_ts" type="u64">
+  Timestamp of the first frame
+</ParamField>
+
+<ParamField path="sample_format" type="Option<SampleFormat>">
+  Sample format of decoded audio
+</ParamField>
+
+<ParamField path="bits_per_sample" type="Option<u32>">
+  Bits per decoded audio sample
+</ParamField>
+
+<ParamField path="bits_per_coded_sample" type="Option<u32>">
+  Bits per encoded audio sample
+</ParamField>
+
+<ParamField path="channels" type="Option<Channels>">
+  Bitmask of all channels in the stream
+</ParamField>
+
+<ParamField path="channel_layout" type="Option<Layout>">
+  Channel layout
+</ParamField>
+
+<ParamField path="delay" type="Option<u32>">
+  Leading frames inserted by the encoder (encoder delay)
+</ParamField>
+
+<ParamField path="padding" type="Option<u32>">
+  Trailing frames inserted by the encoder (padding)
+</ParamField>
+
+<ParamField path="max_frames_per_packet" type="Option<u64>">
+  Maximum frames a packet will contain
+</ParamField>
+
+<ParamField path="packet_data_integrity" type="bool">
+  Whether the demuxer guarantees packet data integrity
+</ParamField>
+
+<ParamField path="verification_check" type="Option<VerificationCheck>">
+  Method and expected value for verifying decoded audio
+</ParamField>
+
+<ParamField path="frames_per_block" type="Option<u64>">
+  Frames per block for multi-block packets
+</ParamField>
+
+<ParamField path="extra_data" type="Option<Box<[u8]>>">
+  Codec-specific extra data
+</ParamField>
+
+#### Builder Methods
+
+```rust
+pub fn new() -> CodecParameters
+pub fn for_codec(&mut self, codec: CodecType) -> &mut Self
+pub fn with_sample_rate(&mut self, sample_rate: u32) -> &mut Self
+pub fn with_time_base(&mut self, time_base: TimeBase) -> &mut Self
+pub fn with_n_frames(&mut self, n_frames: u64) -> &mut Self
+pub fn with_start_ts(&mut self, start_ts: u64) -> &mut Self
+pub fn with_sample_format(&mut self, sample_format: SampleFormat) -> &mut Self
+pub fn with_bits_per_sample(&mut self, bits_per_sample: u32) -> &mut Self
+pub fn with_bits_per_coded_sample(&mut self, bits_per_coded_sample: u32) -> &mut Self
+pub fn with_channels(&mut self, channels: Channels) -> &mut Self
+pub fn with_channel_layout(&mut self, channel_layout: Layout) -> &mut Self
+pub fn with_delay(&mut self, delay: u32) -> &mut Self
+pub fn with_padding(&mut self, padding: u32) -> &mut Self
+pub fn with_max_frames_per_packet(&mut self, len: u64) -> &mut Self
+pub fn with_packet_data_integrity(&mut self, integrity: bool) -> &mut Self
+pub fn with_frames_per_block(&mut self, len: u64) -> &mut Self
+pub fn with_extra_data(&mut self, data: Box<[u8]>) -> &mut Self
+pub fn with_verification_code(&mut self, code: VerificationCheck) -> &mut Self
+```
+
+**Example:**
+
+```rust
+use symphonia::core::codecs::{CodecParameters, CODEC_TYPE_VORBIS};
+use symphonia::core::audio::Channels;
+
+let mut params = CodecParameters::new();
+params
+    .for_codec(CODEC_TYPE_VORBIS)
+    .with_sample_rate(44100)
+    .with_channels(Channels::FRONT_LEFT | Channels::FRONT_RIGHT);
+```
+
+### DecoderOptions
+
+```rust
+pub struct DecoderOptions {
+    pub verify: bool,
+}
+```
+
+Common options for all decoders.
+
+<ParamField path="verify" type="bool">
+  Whether the decoded audio should be verified during the decode process (if supported). Default: `false`.
+</ParamField>
+
+**Example:**
+
+```rust
+let options = DecoderOptions { verify: true };
+let decoder = codec_registry.make(&track.codec_params, &options)?;
+```
+
+### FinalizeResult
+
+```rust
+pub struct FinalizeResult {
+    pub verify_ok: Option<bool>,
+}
+```
+
+Optional information available only after decoding is complete.
+
+<ParamField path="verify_ok" type="Option<bool>">
+  Verification result if verification was enabled and supported. `Some(true)` if verification passed, `Some(false)` if it failed, `None` if not available.
+</ParamField>
+
+### CodecType
+
+```rust
+pub struct CodecType(u32);
+```
+
+A unique identifier for a specific codec.
+
+#### Common Codec Types
+
+**PCM Codecs:**
+
+```rust
+CODEC_TYPE_PCM_S16LE    // PCM signed 16-bit little-endian
+CODEC_TYPE_PCM_S24LE    // PCM signed 24-bit little-endian
+CODEC_TYPE_PCM_S32LE    // PCM signed 32-bit little-endian
+CODEC_TYPE_PCM_F32LE    // PCM 32-bit float little-endian
+CODEC_TYPE_PCM_F64LE    // PCM 64-bit float little-endian
+```
+
+**Lossy Codecs:**
+
+```rust
+CODEC_TYPE_VORBIS       // Vorbis
+CODEC_TYPE_MP3          // MPEG Layer 3
+CODEC_TYPE_AAC          // Advanced Audio Coding
+CODEC_TYPE_OPUS         // Opus
+```
+
+**Lossless Codecs:**
+
+```rust
+CODEC_TYPE_FLAC         // Free Lossless Audio Codec
+CODEC_TYPE_ALAC         // Apple Lossless Audio Codec
+CODEC_TYPE_WAVPACK      // WavPack
+CODEC_TYPE_MONKEYS_AUDIO // Monkey's Audio (APE)
+```
+
+#### Custom Codec Types
+
+```rust
+pub const fn decl_codec_type(cc: &[u8]) -> CodecType
+```
+
+Declare a custom codec type using a character code (max 5 alphanumeric ASCII characters).
+
+<ParamField path="cc" type="&[u8]">
+  ASCII character code for the codec
+</ParamField>
+
+<ResponseField name="CodecType" type="CodecType">
+  The codec type identifier
+</ResponseField>
+
+**Example:**
+
+```rust
+const MY_CODEC: CodecType = decl_codec_type(b"mycd1");
+```
+
+### VerificationCheck
+
+```rust
+pub enum VerificationCheck {
+    Crc8(u8),
+    Crc16([u8; 2]),
+    Crc32([u8; 4]),
+    Md5([u8; 16]),
+    Other([u8; 16]),
+}
+```
+
+A method and expected value to verify decoded audio.
+
+<ParamField path="Crc8" type="u8">
+  CRC8 of interleaved PCM audio samples
+</ParamField>
+
+<ParamField path="Crc16" type="[u8; 2]">
+  CRC16 of interleaved PCM audio samples
+</ParamField>
+
+<ParamField path="Crc32" type="[u8; 4]">
+  CRC32 of interleaved PCM audio samples
+</ParamField>
+
+<ParamField path="Md5" type="[u8; 16]">
+  MD5 hash of interleaved PCM audio samples
+</ParamField>
+
+<ParamField path="Other" type="[u8; 16]">
+  Codec-defined verification code (up to 16 bytes)
+</ParamField>
+
+### CodecDescriptor
+
+```rust
+pub struct CodecDescriptor {
+    pub codec: CodecType,
+    pub short_name: &'static str,
+    pub long_name: &'static str,
+    pub inst_func: fn(&CodecParameters, &DecoderOptions) -> Result<Box<dyn Decoder>>,
+}
+```
+
+Stores a description of a single codec including instantiation function.
+
+<ParamField path="codec" type="CodecType">
+  The codec type identifier
+</ParamField>
+
+<ParamField path="short_name" type="&'static str">
+  Short ASCII-only name for the codec
+</ParamField>
+
+<ParamField path="long_name" type="&'static str">
+  Longer, descriptive name for the codec
+</ParamField>
+
+<ParamField path="inst_func" type="fn(&CodecParameters, &DecoderOptions) -> Result<Box<dyn Decoder>>">
+  Function to instantiate a decoder for this codec
+</ParamField>
+
+## Complete Example
+
+```rust
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_FLAC};
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::audio::SampleBuffer;
+use std::fs::File;
+
+fn decode_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Open and probe the file
+    let file = File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    
+    let mut hint = Hint::new();
+    hint.with_extension("flac");
+
+    let probe = symphonia::default::get_probe();
+    let probed = probe.format(
+        &hint,
+        mss,
+        &FormatOptions::default(),
+        &MetadataOptions::default()
+    )?;
+
+    let mut format = probed.format;
+    let track = format.default_track().unwrap();
+
+    // Verify it's a FLAC file
+    assert_eq!(track.codec_params.codec, CODEC_TYPE_FLAC);
+
+    // Create decoder with verification enabled
+    let codec_registry = symphonia::default::get_codecs();
+    let decoder_opts = DecoderOptions { verify: true };
+    let mut decoder = codec_registry.make(&track.codec_params, &decoder_opts)?;
+
+    // Print codec information
+    let params = decoder.codec_params();
+    println!("Sample rate: {} Hz", params.sample_rate.unwrap());
+    println!("Channels: {:?}", params.channels.unwrap());
+    if let Some(n_frames) = params.n_frames {
+        println!("Total frames: {}", n_frames);
+    }
+
+    // Decode all packets
+    let mut sample_buf = None;
+    let mut frames_decoded = 0;
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(_) => break,
+        };
+
+        if packet.track_id() != track.id {
+            continue;
+        }
+
+        match decoder.decode(&packet) {
+            Ok(decoded) => {
+                frames_decoded += decoded.frames();
+                
+                // Convert to sample buffer on first packet
+                if sample_buf.is_none() {
+                    let spec = *decoded.spec();
+                    let duration = decoded.capacity() as u64;
+                    sample_buf = Some(SampleBuffer::<f32>::new(duration, spec));
+                }
+
+                // Copy decoded samples to buffer
+                if let Some(buf) = &mut sample_buf {
+                    buf.copy_interleaved_ref(decoded);
+                    // Process samples in buf.samples()...
+                }
+            },
+            Err(err) => {
+                eprintln!("Decode error: {}", err);
+                continue;
+            }
+        }
+    }
+
+    // Check verification result
+    let result = decoder.finalize();
+    if let Some(verify_ok) = result.verify_ok {
+        println!("Verification: {}", if verify_ok { "PASSED" } else { "FAILED" });
+    }
+
+    println!("Decoded {} frames", frames_decoded);
+    Ok(())
+}
+```
+
+## See Also
+
+- [CodecRegistry](/api/core/codec-registry) - Codec registration and management
+- [FormatReader](/api/core/format-reader) - Container demuxing
+- [Core Overview](/api/core/overview) - Core API overview

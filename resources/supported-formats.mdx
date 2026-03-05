@@ -1,0 +1,157 @@
+---
+title: Supported Formats
+description: Complete list of container formats and demuxers supported by Symphonia
+---
+
+Symphonia supports a wide range of audio container formats through dedicated demuxer implementations. Each format is provided by a separate crate and can be enabled using feature flags.
+
+## Feature Flags
+
+By default, Symphonia only enables royalty-free open standard formats. Additional formats can be enabled using feature flags in your `Cargo.toml`:
+
+```toml
+symphonia = { version = "0.5", features = ["isomp4", "aiff"] }
+```
+
+<Tip>
+All formats can be enabled at once with the `all-formats` feature flag.
+</Tip>
+
+## Supported Formats
+
+The following table shows all supported container formats, their development status, gapless playback support, and associated feature flags:
+
+| Format   | Status    | Gapless* | Feature Flag | Default | Crate                       |
+|----------|-----------|----------|--------------|---------|-----------------------------||
+| AIFF     | Great     | Yes      | `aiff`       | No      | [`symphonia-format-riff`]   |
+| CAF      | Good      | No       | `caf`        | No      | [`symphonia-format-caf`]    |
+| ISO/MP4  | Great     | No       | `isomp4`     | No      | [`symphonia-format-isomp4`] |
+| MKV/WebM | Good      | No       | `mkv`        | Yes     | [`symphonia-format-mkv`]    |
+| OGG      | Great     | Yes      | `ogg`        | Yes     | [`symphonia-format-ogg`]    |
+| Wave     | Excellent | Yes      | `wav`        | Yes     | [`symphonia-format-riff`]   |
+
+\* Gapless playback requires support from both the demuxer and decoder.
+
+[`symphonia-format-caf`]: https://docs.rs/symphonia-format-caf
+[`symphonia-format-isomp4`]: https://docs.rs/symphonia-format-isomp4
+[`symphonia-format-mkv`]: https://docs.rs/symphonia-format-mkv
+[`symphonia-format-ogg`]: https://docs.rs/symphonia-format-ogg
+[`symphonia-format-riff`]: https://docs.rs/symphonia-format-riff
+
+## Status Classifications
+
+<AccordionGroup>
+  <Accordion title="Excellent">
+    All media streams play. No audible or inaudible glitches. All required features are supported.
+    
+    This status is only assigned after passing all compliance tests, or if Symphonia's output matches a reference implementation over a large test corpus.
+  </Accordion>
+
+  <Accordion title="Great">
+    Most media streams play. Inaudible glitches may be present. Most common features are supported.
+    
+    This status indicates that major development is complete and the feature is acceptable for most applications.
+  </Accordion>
+
+  <Accordion title="Good">
+    Many media streams play. Some streams may panic, error, or produce audible glitches. Some features may not be supported.
+    
+    This status indicates active development or known limitations.
+  </Accordion>
+</AccordionGroup>
+
+## Format Details
+
+### AIFF (Audio Interchange File Format)
+
+- **Status**: Great
+- **Gapless**: Yes
+- **Crate**: `symphonia-format-riff`
+- Common file extensions: `.aiff`, `.aif`
+- Widely used on Apple platforms
+- Supports uncompressed PCM and compressed audio
+
+### CAF (Core Audio Format)
+
+- **Status**: Good
+- **Gapless**: No
+- **Crate**: `symphonia-format-caf`
+- Common file extension: `.caf`
+- Apple's modern container format
+- Designed to overcome limitations of older formats
+
+### ISO/MP4
+
+- **Status**: Great
+- **Gapless**: No
+- **Crate**: `symphonia-format-isomp4`
+- Common file extensions: `.mp4`, `.m4a`, `.m4b`, `.m4p`
+- Industry standard for AAC audio
+- Based on ISO Base Media File Format
+
+### MKV/WebM
+
+- **Status**: Good
+- **Gapless**: No
+- **Crate**: `symphonia-format-mkv`
+- Common file extensions: `.mkv`, `.mka`, `.webm`
+- Flexible, open-source container format
+- Enabled by default
+
+### OGG
+
+- **Status**: Great
+- **Gapless**: Yes
+- **Crate**: `symphonia-format-ogg`
+- Common file extensions: `.ogg`, `.oga`
+- Free, open container format
+- Commonly used with Vorbis and Opus codecs
+- Enabled by default
+
+### Wave (WAV)
+
+- **Status**: Excellent
+- **Gapless**: Yes
+- **Crate**: `symphonia-format-riff`
+- Common file extensions: `.wav`, `.wave`
+- Microsoft/IBM audio format
+- Most commonly contains uncompressed PCM
+- Enabled by default
+
+## Gapless Playback
+
+Gapless playback eliminates silence or gaps between tracks during continuous playback. This feature requires support from **both** the container format (demuxer) and the audio codec (decoder).
+
+Formats with gapless support:
+- AIFF (with compatible codecs)
+- OGG (with Vorbis, Opus)
+- Wave (with compatible codecs)
+
+<Note>
+Even if a format supports gapless playback, the codec must also support it. See [Supported Codecs](/resources/supported-codecs) for codec-specific gapless support.
+</Note>
+
+## Usage Example
+
+```rust
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+// Open a media file
+let file = Box::new(File::open("audio.mp4")?);\nlet mss = MediaSourceStream::new(file, Default::default());
+
+// Create a hint with the file extension
+let mut hint = Hint::new();
+hint.with_extension("mp4");
+
+// Probe the format
+let probed = symphonia::default::get_probe()
+    .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())?;
+
+let mut format = probed.format;
+```
+
+For more examples, see the [Examples](/resources/examples) page.

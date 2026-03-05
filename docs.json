@@ -1,122 +1,130 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Symphonia",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#242b2c",
+    "light": "#040404",
+    "dark": "#242b2c"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/f29018a1-d2d4-46d2-8d13-4a2632a679a2.png",
+  "logo": {
+    "light": "https://media.brand.dev/3b16fb27-22e9-4daa-a368-88b404b0d37e.svg",
+    "dark": "https://media.brand.dev/3b16fb27-22e9-4daa-a368-88b404b0d37e.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/pdeljanov/Symphonia"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/pdeljanov/Symphonia"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "installation",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/architecture",
+              "concepts/formats-and-codecs",
+              "concepts/audio-primitives",
+              "concepts/media-sources"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "guides/decoding-audio",
+              "guides/working-with-metadata",
+              "guides/gapless-playback",
+              "guides/format-detection",
+              "guides/custom-codecs"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Resources",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "resources/supported-formats",
+              "resources/supported-codecs",
+              "resources/performance",
+              "resources/examples",
+              "resources/faq"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core",
             "pages": [
-              "api-reference/introduction"
+              "api/core/overview",
+              "api/core/probe",
+              "api/core/format-reader",
+              "api/core/decoder",
+              "api/core/codec-registry"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Audio",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/audio/audio-buffer",
+              "api/audio/sample-buffer",
+              "api/audio/signal-specs"
+            ]
+          },
+          {
+            "group": "IO",
+            "pages": [
+              "api/io/media-source",
+              "api/io/media-source-stream"
+            ]
+          },
+          {
+            "group": "Codecs",
+            "pages": [
+              "api/codecs/aac",
+              "api/codecs/flac",
+              "api/codecs/mp3",
+              "api/codecs/vorbis",
+              "api/codecs/alac",
+              "api/codecs/pcm"
+            ]
+          },
+          {
+            "group": "Formats",
+            "pages": [
+              "api/formats/mp4",
+              "api/formats/ogg",
+              "api/formats/mkv",
+              "api/formats/wav",
+              "api/formats/aiff"
+            ]
+          },
+          {
+            "group": "Metadata",
+            "pages": [
+              "api/metadata/id3",
+              "api/metadata/vorbis-comment"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

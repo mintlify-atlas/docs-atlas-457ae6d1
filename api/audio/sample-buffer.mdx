@@ -1,0 +1,336 @@
+---
+title: SampleBuffer
+description: Sample-oriented buffer for interleaved or planar audio data
+---
+
+`SampleBuffer<S>` is a sample-oriented buffer that provides a safe interface for importing and exporting audio samples between Symphonia and your application.
+
+## Overview
+
+Unlike [AudioBuffer](/api/audio/audio-buffer) which stores samples in a planar layout, SampleBuffer is agnostic to the ordering of samples. It can store samples in either interleaved (LRLRLR...) or planar (LLL...RRR...) format, making it ideal for interfacing with audio playback libraries.
+
+## Type Parameters
+
+<ParamField path="S" type="Sample">
+  The sample format type (e.g., `f32`, `i16`, `u8`)
+</ParamField>
+
+## Creating a SampleBuffer
+
+### `new`
+
+```rust
+pub fn new(duration: Duration, spec: SignalSpec) -> SampleBuffer<S>
+```
+
+Creates a new SampleBuffer with the specified duration and signal specification.
+
+<ParamField path="duration" type="Duration" required>
+  Maximum number of frames per channel
+</ParamField>
+
+<ParamField path="spec" type="SignalSpec" required>
+  Signal specification (sample rate and channels)
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::audio::{SampleBuffer, SignalSpec, Layout};
+
+let spec = SignalSpec::new_with_layout(48000, Layout::Stereo);
+let mut sample_buf = SampleBuffer::<f32>::new(4096, spec);
+```
+
+## Accessing Samples
+
+### `samples`
+
+```rust
+pub fn samples(&self) -> &[S]
+```
+
+Returns an immutable slice of all written samples.
+
+### `samples_mut`
+
+```rust
+pub fn samples_mut(&mut self) -> &mut [S]
+```
+
+Returns a mutable slice of all written samples.
+
+### `len`
+
+```rust
+pub fn len(&self) -> usize
+```
+
+Returns the number of written samples (not frames).
+
+### `is_empty`
+
+```rust
+pub fn is_empty(&self) -> bool
+```
+
+Returns `true` if no samples have been written.
+
+### `capacity`
+
+```rust
+pub fn capacity(&self) -> usize
+```
+
+Returns the maximum number of samples the buffer can store.
+
+### `clear`
+
+```rust
+pub fn clear(&mut self)
+```
+
+Clears all written samples.
+
+## Copying from AudioBuffer
+
+SampleBuffer provides methods to copy audio data from AudioBuffer or AudioBufferRef with automatic sample format conversion.
+
+### Interleaved Format
+
+#### `copy_interleaved_ref`
+
+```rust
+pub fn copy_interleaved_ref(&mut self, src: AudioBufferRef)
+where
+    S: ConvertibleSample
+```
+
+Copies all audio data from an AudioBufferRef in interleaved channel order.
+
+**Example:**
+
+```rust
+use symphonia::core::audio::SampleBuffer;
+
+// Create sample buffer matching decoded audio
+let mut sample_buf = SampleBuffer::<f32>::new(
+    decoded.capacity() as u64,
+    *decoded.spec()
+);
+
+// Copy and convert to interleaved f32 samples
+sample_buf.copy_interleaved_ref(decoded);
+
+// Get interleaved samples for playback
+let samples = sample_buf.samples();
+```
+
+#### `copy_interleaved_typed`
+
+```rust
+pub fn copy_interleaved_typed<F>(&mut self, src: &AudioBuffer<F>)
+where
+    F: Sample + IntoSample<S>
+```
+
+Copies from a typed AudioBuffer in interleaved order.
+
+**Example:**
+
+```rust
+let mut f32_buf = SampleBuffer::<f32>::new(4096, spec);
+let i16_audio_buf = AudioBuffer::<i16>::new(4096, spec);
+
+// Convert i16 -> f32 and interleave
+f32_buf.copy_interleaved_typed(&i16_audio_buf);
+```
+
+### Planar Format
+
+#### `copy_planar_ref`
+
+```rust
+pub fn copy_planar_ref(&mut self, src: AudioBufferRef)
+where
+    S: ConvertibleSample
+```
+
+Copies all audio data from an AudioBufferRef in planar channel order.
+
+**Example:**
+
+```rust
+// Copy in planar format (all samples for channel 0, then channel 1, etc.)
+sample_buf.copy_planar_ref(decoded);
+```
+
+#### `copy_planar_typed`
+
+```rust
+pub fn copy_planar_typed<F>(&mut self, src: &AudioBuffer<F>)
+where
+    F: Sample + IntoSample<S>
+```
+
+Copies from a typed AudioBuffer in planar order.
+
+## Sample Format Conversion
+
+SampleBuffer automatically converts between sample formats when copying:
+
+```rust
+// Source: i16 samples from decoder
+// Destination: f32 samples for processing
+
+let mut i16_buf = SampleBuffer::<i16>::new(capacity, spec);
+let mut f32_buf = SampleBuffer::<f32>::new(capacity, spec);
+
+// Copy with automatic i16 -> f32 conversion
+i16_buf.copy_interleaved_ref(decoded);
+
+// Or convert directly to f32
+f32_buf.copy_interleaved_ref(decoded);
+```
+
+### Supported Conversions
+
+All standard sample types can be converted:
+- Unsigned: `u8`, `u16`, `u24`, `u32`
+- Signed: `i8`, `i16`, `i24`, `i32`
+- Float: `f32`, `f64`
+
+## Complete Usage Example
+
+```rust
+use symphonia::core::audio::SampleBuffer;
+use symphonia::core::codecs::Decoder;
+use symphonia::core::formats::FormatReader;
+
+fn decode_to_samples(
+    format: &mut Box<dyn FormatReader>,
+    decoder: &mut Box<dyn Decoder>,
+    track_id: u32,
+) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    let mut sample_buf = None;
+    let mut all_samples = Vec::new();
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(_) => break,
+        };
+
+        if packet.track_id() != track_id {
+            continue;
+        }
+
+        let decoded = decoder.decode(&packet)?;
+
+        // Create sample buffer on first packet
+        if sample_buf.is_none() {
+            let spec = *decoded.spec();
+            let duration = decoded.capacity() as u64;
+            sample_buf = Some(SampleBuffer::<f32>::new(duration, spec));
+        }
+
+        let buf = sample_buf.as_mut().unwrap();
+        
+        // Copy and convert to interleaved f32
+        buf.copy_interleaved_ref(decoded);
+        
+        // Append to output
+        all_samples.extend_from_slice(buf.samples());
+    }
+
+    Ok(all_samples)
+}
+```
+
+## Interleaved vs Planar
+
+### Interleaved Format
+
+Samples are stored in channel order: `[L0, R0, L1, R1, L2, R2, ...]`
+
+**Use when:**
+- Interfacing with most audio playback libraries (ALSA, WASAPI, CoreAudio)
+- Sending to audio output devices
+- Working with stereo processing where channels are paired
+
+```rust
+sample_buf.copy_interleaved_ref(decoded);
+let samples = sample_buf.samples();
+// samples[0] = left channel, frame 0
+// samples[1] = right channel, frame 0
+// samples[2] = left channel, frame 1
+// ...
+```
+
+### Planar Format
+
+Samples are stored by channel: `[L0, L1, L2, ..., R0, R1, R2, ...]`
+
+**Use when:**
+- Processing channels independently
+- Applying channel-specific effects
+- Interfacing with libraries expecting planar data
+
+```rust
+sample_buf.copy_planar_ref(decoded);
+let samples = sample_buf.samples();
+let n_frames = decoded.frames();
+let n_channels = decoded.spec().channels.count();
+
+// First n_frames samples are channel 0
+let left = &samples[0..n_frames];
+// Next n_frames samples are channel 1  
+let right = &samples[n_frames..n_frames * 2];
+```
+
+## RawSampleBuffer
+
+For byte-oriented access, use `RawSampleBuffer<S>` instead:
+
+```rust
+use symphonia::core::audio::RawSampleBuffer;
+
+let mut byte_buf = RawSampleBuffer::<f32>::new(
+    decoded.capacity() as u64,
+    *decoded.spec()
+);
+
+byte_buf.copy_interleaved_ref(decoded);
+
+// Access as raw bytes
+let bytes: &[u8] = byte_buf.as_bytes();
+```
+
+## Performance Notes
+
+<Note>
+Reuse the same SampleBuffer instance throughout decoding rather than creating a new buffer for each packet. Only recreate if the decoder returns `Error::ResetRequired`.
+</Note>
+
+```rust
+// Good: Reuse buffer
+let mut sample_buf = SampleBuffer::<f32>::new(capacity, spec);
+
+for packet in packets {
+    let decoded = decoder.decode(&packet)?;
+    sample_buf.copy_interleaved_ref(decoded);
+    // Use samples...
+}
+
+// Bad: Create new buffer each time
+for packet in packets {
+    let decoded = decoder.decode(&packet)?;
+    let mut sample_buf = SampleBuffer::<f32>::new(capacity, spec); // Wasteful!
+    sample_buf.copy_interleaved_ref(decoded);
+}
+```
+
+## See Also
+
+- [AudioBuffer](/api/audio/audio-buffer) - Planar multi-channel buffer
+- [SignalSpec](/api/audio/signal-specs) - Signal specifications

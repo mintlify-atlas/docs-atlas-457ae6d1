@@ -1,0 +1,102 @@
+---
+title: ISO/MP4 Format
+description: ISO Base Media File Format (MP4, M4A, M4V) demuxer
+---
+
+The ISO/MP4 format demuxer provides support for the ISO Base Media File Format container, commonly used for MP4, M4A, and M4V files.
+
+## Feature Flag
+
+```toml
+[dependencies]
+symphonia = { version = "0.5", features = ["isomp4"] }
+```
+
+## Status
+
+**Great** - Most media streams play. Inaudible glitches may be present. Most common features are supported.
+
+## Supported Codecs
+
+The ISO/MP4 container can encapsulate various audio codecs:
+
+- **AAC-LC** (Advanced Audio Coding)
+- **ALAC** (Apple Lossless Audio Codec)
+- **MP3** (MPEG-1/2 Audio Layer III)
+- **FLAC** (Free Lossless Audio Codec)
+- **Opus**
+
+## Gapless Playback
+
+❌ **Not supported** - The demuxer does not currently support gapless playback.
+
+## Metadata Support
+
+The MP4 format supports **iTunes-style metadata** tags:
+
+- Track information (title, artist, album)
+- Album art (cover images)
+- Encoder information
+- Copyright and licensing data
+
+Metadata is automatically parsed when opening MP4 files.
+
+## Usage Example
+
+```rust
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Open the media file
+    let file = Box::new(File::open("audio.m4a")?);
+    let mss = MediaSourceStream::new(file, Default::default());
+
+    // Create a hint to help the format registry
+    let mut hint = Hint::new();
+    hint.with_extension("m4a");
+
+    // Probe the media source
+    let format_opts = FormatOptions::default();
+    let metadata_opts = MetadataOptions::default();
+    
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &format_opts, &metadata_opts)?;
+
+    let mut format = probed.format;
+
+    // Get the default track
+    let track = format.default_track().unwrap();
+    
+    println!("Codec: {:?}", track.codec_params.codec);
+    println!("Sample Rate: {:?}", track.codec_params.sample_rate);
+    println!("Channels: {:?}", track.codec_params.channels);
+
+    // Read metadata
+    if let Some(metadata) = probed.metadata.get() {
+        for tag in metadata.tags() {
+            println!("{}: {}", tag.key, tag.value);
+        }
+    }
+
+    Ok(())
+}
+```
+
+## Known Limitations
+
+- Gapless playback is not supported
+- Some advanced MP4 features may not be fully implemented
+- Fragmented MP4 (fMP4) support is limited
+- DASH and HLS streaming features are not supported
+
+## Crate Information
+
+**Crate:** [`symphonia-format-isomp4`](https://docs.rs/symphonia-format-isomp4)
+
+**Version:** 0.5.5
+
+**License:** MPL-2.0

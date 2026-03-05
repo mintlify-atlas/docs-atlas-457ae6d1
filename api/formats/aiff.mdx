@@ -1,0 +1,178 @@
+---
+title: AIFF Format
+description: Audio Interchange File Format (AIFF/AIFC) demuxer
+---
+
+The AIFF demuxer provides support for the Audio Interchange File Format, Apple's standard for storing high-quality audio based on the RIFF container structure.
+
+## Feature Flag
+
+```toml
+[dependencies]
+symphonia = { version = "0.5", features = ["aiff"] }
+```
+
+## Status
+
+**Great** - Most media streams play. Inaudible glitches may be present. Most common features are supported.
+
+## Supported Codecs
+
+The AIFF container supports various audio codecs:
+
+- **PCM** (8, 16, 24, 32-bit integer) - AIFF
+- **IEEE Float** (32, 64-bit) - AIFF
+- **ALAC** (Apple Lossless) - AIFC
+- **A-law / μ-law** - AIFC
+- **IMA ADPCM** - AIFC
+
+## Gapless Playback
+
+✅ **Fully supported** - AIFF files support gapless playback with sample-accurate seeking.
+
+## Metadata Support
+
+AIFF files support metadata through several mechanisms:
+
+- **NAME chunk** - Audio name/title
+- **AUTH chunk** - Author/artist
+- **ANNO chunk** - Annotations/comments
+- **COMT chunk** - Timestamped comments
+- **ID3v2 tags** - Modern metadata (embedded)
+
+AIFF metadata is more limited compared to modern formats, but ID3v2 tags provide comprehensive metadata support.
+
+## Usage Example
+
+```rust
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Open the AIFF file
+    let file = Box::new(File::open("audio.aiff")?);
+    let mss = MediaSourceStream::new(file, Default::default());
+
+    // Create a hint
+    let mut hint = Hint::new();
+    hint.with_extension("aiff");
+
+    // Probe the media source
+    let format_opts = FormatOptions::default();
+    let metadata_opts = MetadataOptions::default();
+    
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &format_opts, &metadata_opts)?;
+
+    let mut format = probed.format;
+
+    // Get the default track
+    let track = format.default_track().unwrap();
+    
+    println!("Codec: {:?}", track.codec_params.codec);
+    println!("Sample Rate: {:?}", track.codec_params.sample_rate);
+    println!("Channels: {:?}", track.codec_params.channels);
+    println!("Bits per Sample: {:?}", track.codec_params.bits_per_sample);
+
+    // Calculate duration
+    if let Some(n_frames) = track.codec_params.n_frames {
+        if let Some(sample_rate) = track.codec_params.sample_rate {
+            let duration_secs = n_frames as f64 / sample_rate as f64;
+            println!("Duration: {:.2} seconds", duration_secs);
+        }
+    }
+
+    // Read metadata
+    if let Some(metadata) = probed.metadata.get() {
+        for tag in metadata.tags() {
+            println!("{}: {}", tag.key, tag.value);
+        }
+    }
+
+    Ok(())
+}
+```
+
+## Advanced Features
+
+### AIFF vs AIFC
+
+There are two variants of AIFF:
+
+- **AIFF** - Original format, primarily for uncompressed PCM audio
+- **AIFC** (AIFF-C) - Compressed variant supporting various codecs
+
+Symphonia handles both transparently.
+
+### Seeking in AIFF Files
+
+AIFF files support sample-accurate seeking:
+
+```rust
+use symphonia::core::formats::SeekMode;
+use symphonia::core::formats::SeekTo;
+
+// Seek to 10 seconds
+let target_sample = 10 * track.codec_params.sample_rate.unwrap();
+format.seek(
+    SeekMode::Accurate,
+    SeekTo::TimeStamp { ts: target_sample as u64, track_id: track.id }
+)?;
+```
+
+### Marker and Loop Points
+
+AIFF files support markers and loop points for audio editing:
+
+```rust
+// Access cue points (markers)
+for cue in format.cues() {
+    println!("Marker at sample {}", cue.index);
+    if let Some(tags) = &cue.tags {
+        for tag in tags {
+            println!("  {}: {}", tag.key, tag.value);
+        }
+    }
+}
+```
+
+### Extended Floating Point
+
+AIFF uses 80-bit extended precision floating point for sample rates. Symphonia handles this conversion internally.
+
+## Known Limitations
+
+- Some proprietary or rare AIFC compression formats may not be supported
+- MIDI data chunks (MIDI) are not parsed
+- Application-specific chunks (APPL) are ignored
+- Instrument information (INST) is not exposed
+
+## File Extensions
+
+- `.aiff` - Standard AIFF files
+- `.aif` - Short extension
+- `.aifc` - Compressed AIFF files
+
+## MIME Types
+
+- `audio/aiff`
+- `audio/x-aiff`
+- `sound/aiff`
+- `audio/x-pn-aiff`
+
+## Byte Order
+
+AIFF uses **big-endian** byte order (unlike WAV which uses little-endian). Symphonia handles this automatically.
+
+## Crate Information
+
+**Crate:** [`symphonia-format-riff`](https://docs.rs/symphonia-format-riff)
+
+**Version:** 0.5.5
+
+**License:** MPL-2.0
+
+**Safety:** 100% safe Rust (forbids unsafe code)

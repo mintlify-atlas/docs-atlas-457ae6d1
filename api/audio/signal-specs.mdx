@@ -1,0 +1,396 @@
+---
+title: Signal Specifications
+description: Signal characteristics and channel configurations
+---
+
+Signal specifications define the characteristics of an audio signal including sample rate and channel configuration.
+
+## SignalSpec
+
+`SignalSpec` describes the fundamental properties of an audio signal.
+
+```rust
+pub struct SignalSpec {
+    pub rate: u32,
+    pub channels: Channels,
+}
+```
+
+<ResponseField name="rate" type="u32">
+  Sample rate in hertz (Hz). Common values: 44100, 48000, 96000
+</ResponseField>
+
+<ResponseField name="channels" type="Channels">
+  Channel configuration as a bitmask
+</ResponseField>
+
+### Creating SignalSpec
+
+#### `new`
+
+```rust
+pub fn new(rate: u32, channels: Channels) -> Self
+```
+
+Creates a SignalSpec with the specified sample rate and channel configuration.
+
+<ParamField path="rate" type="u32" required>
+  Sample rate in Hz
+</ParamField>
+
+<ParamField path="channels" type="Channels" required>
+  Channel bitmask
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::audio::{SignalSpec, Channels};
+
+let spec = SignalSpec::new(
+    48000,
+    Channels::FRONT_LEFT | Channels::FRONT_RIGHT
+);
+```
+
+#### `new_with_layout`
+
+```rust
+pub fn new_with_layout(rate: u32, layout: Layout) -> Self
+```
+
+Creates a SignalSpec using a standard channel layout.
+
+<ParamField path="rate" type="u32" required>
+  Sample rate in Hz
+</ParamField>
+
+<ParamField path="layout" type="Layout" required>
+  Standard channel layout (Mono, Stereo, etc.)
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::audio::{SignalSpec, Layout};
+
+let stereo_spec = SignalSpec::new_with_layout(48000, Layout::Stereo);
+let mono_spec = SignalSpec::new_with_layout(44100, Layout::Mono);
+let surround_spec = SignalSpec::new_with_layout(48000, Layout::FivePointOne);
+```
+
+## Channels
+
+`Channels` is a bitmask representing the audio channels in a signal. The first 18 channels are compatible with Microsoft's WAVEFORMATEXTENSIBLE structure.
+
+```rust
+pub struct Channels: u32
+```
+
+### Standard Channel Flags
+
+<ResponseField name="FRONT_LEFT" type="0x0001">
+  Front-left (left) or Mono channel
+</ResponseField>
+
+<ResponseField name="FRONT_RIGHT" type="0x0002">
+  Front-right (right) channel
+</ResponseField>
+
+<ResponseField name="FRONT_CENTRE" type="0x0004">
+  Front-centre (center) channel
+</ResponseField>
+
+<ResponseField name="LFE1" type="0x0008">
+  Low frequency effects channel 1 (subwoofer)
+</ResponseField>
+
+<ResponseField name="REAR_LEFT" type="0x0010">
+  Rear-left (surround rear left) channel
+</ResponseField>
+
+<ResponseField name="REAR_RIGHT" type="0x0020">
+  Rear-right (surround rear right) channel
+</ResponseField>
+
+<ResponseField name="FRONT_LEFT_CENTRE" type="0x0040">
+  Front left-of-centre channel
+</ResponseField>
+
+<ResponseField name="FRONT_RIGHT_CENTRE" type="0x0080">
+  Front right-of-centre channel
+</ResponseField>
+
+<ResponseField name="REAR_CENTRE" type="0x0100">
+  Rear-centre (surround rear centre) channel
+</ResponseField>
+
+<ResponseField name="SIDE_LEFT" type="0x0200">
+  Side left (surround left) channel
+</ResponseField>
+
+<ResponseField name="SIDE_RIGHT" type="0x0400">
+  Side right (surround right) channel
+</ResponseField>
+
+### Additional Channel Flags
+
+Channels also supports additional positions:
+- `TOP_CENTRE`, `TOP_FRONT_LEFT`, `TOP_FRONT_CENTRE`, `TOP_FRONT_RIGHT`
+- `TOP_REAR_LEFT`, `TOP_REAR_CENTRE`, `TOP_REAR_RIGHT`
+- `REAR_LEFT_CENTRE`, `REAR_RIGHT_CENTRE`
+- `FRONT_LEFT_WIDE`, `FRONT_RIGHT_WIDE`
+- `FRONT_LEFT_HIGH`, `FRONT_CENTRE_HIGH`, `FRONT_RIGHT_HIGH`
+- `LFE2` - Second low frequency channel
+
+### Channels Methods
+
+#### `count`
+
+```rust
+pub fn count(self) -> usize
+```
+
+Returns the number of channels in the bitmask.
+
+**Example:**
+
+```rust
+let channels = Channels::FRONT_LEFT | Channels::FRONT_RIGHT;
+assert_eq!(channels.count(), 2);
+
+let surround = Channels::FRONT_LEFT | Channels::FRONT_RIGHT 
+             | Channels::FRONT_CENTRE | Channels::LFE1
+             | Channels::REAR_LEFT | Channels::REAR_RIGHT;
+assert_eq!(surround.count(), 6);
+```
+
+#### `iter`
+
+```rust
+pub fn iter(&self) -> ChannelsIter
+```
+
+Returns an iterator over individual channels in the bitmask.
+
+**Example:**
+
+```rust
+let channels = Channels::FRONT_LEFT | Channels::FRONT_RIGHT;
+
+for channel in channels.iter() {
+    println!("Channel: {:?}", channel);
+}
+// Output:
+// Channel: FRONT_LEFT
+// Channel: FRONT_RIGHT
+```
+
+## Layout
+
+`Layout` provides common channel configurations as convenient presets.
+
+```rust
+pub enum Layout {
+    Mono,
+    Stereo,
+    TwoPointOne,
+    FivePointOne,
+}
+```
+
+### Layout Variants
+
+<ResponseField name="Mono">
+  Single centre channel
+  - Channels: `FRONT_LEFT`
+</ResponseField>
+
+<ResponseField name="Stereo">
+  Left and right channels
+  - Channels: `FRONT_LEFT | FRONT_RIGHT`
+</ResponseField>
+
+<ResponseField name="TwoPointOne">
+  Stereo with subwoofer
+  - Channels: `FRONT_LEFT | FRONT_RIGHT | LFE1`
+</ResponseField>
+
+<ResponseField name="FivePointOne">
+  5.1 surround sound
+  - Channels: `FRONT_LEFT | FRONT_RIGHT | FRONT_CENTRE | REAR_LEFT | REAR_RIGHT | LFE1`
+</ResponseField>
+
+### `into_channels`
+
+```rust
+pub fn into_channels(self) -> Channels
+```
+
+Converts a Layout into its corresponding Channels bitmask.
+
+**Example:**
+
+```rust
+use symphonia::core::audio::Layout;
+
+let stereo = Layout::Stereo.into_channels();
+assert_eq!(stereo.count(), 2);
+
+let surround = Layout::FivePointOne.into_channels();
+assert_eq!(surround.count(), 6);
+```
+
+## Common Patterns
+
+### Creating Custom Channel Configurations
+
+```rust
+use symphonia::core::audio::{SignalSpec, Channels};
+
+// Quad surround (4.0)
+let quad = Channels::FRONT_LEFT | Channels::FRONT_RIGHT
+         | Channels::REAR_LEFT | Channels::REAR_RIGHT;
+let spec = SignalSpec::new(48000, quad);
+
+// 7.1 surround
+let surround_7_1 = Channels::FRONT_LEFT | Channels::FRONT_RIGHT
+                 | Channels::FRONT_CENTRE | Channels::LFE1
+                 | Channels::REAR_LEFT | Channels::REAR_RIGHT
+                 | Channels::SIDE_LEFT | Channels::SIDE_RIGHT;
+let spec = SignalSpec::new(48000, surround_7_1);
+```
+
+### Checking Channel Configuration
+
+```rust
+use symphonia::core::audio::Channels;
+
+let channels = decoded.spec().channels;
+
+// Check if stereo
+if channels == (Channels::FRONT_LEFT | Channels::FRONT_RIGHT) {
+    println!("Stereo audio");
+}
+
+// Check if mono
+if channels == Channels::FRONT_LEFT {
+    println!("Mono audio");
+}
+
+// Check channel count
+match channels.count() {
+    1 => println!("Mono"),
+    2 => println!("Stereo"),
+    6 => println!("5.1 Surround"),
+    _ => println!("{} channels", channels.count()),
+}
+```
+
+### Iterating Channels
+
+```rust
+use symphonia::core::audio::{AudioBuffer, Signal};
+
+let buffer: AudioBuffer<f32> = /* ... */;
+let channels = buffer.spec().channels;
+
+// Process each channel
+for (idx, channel_flag) in channels.iter().enumerate() {
+    let samples = buffer.chan(idx);
+    println!("Channel {:?} has {} samples", channel_flag, samples.len());
+    
+    // Process samples for this channel
+    for &sample in samples {
+        // ...
+    }
+}
+```
+
+### Matching Common Layouts
+
+```rust
+use symphonia::core::audio::{Channels, Layout};
+
+let channels = decoded.spec().channels;
+
+if channels == Layout::Stereo.into_channels() {
+    // Optimized stereo processing
+    let left = buffer.chan(0);
+    let right = buffer.chan(1);
+} else if channels == Layout::Mono.into_channels() {
+    // Mono processing
+    let mono = buffer.chan(0);
+} else {
+    // Generic multi-channel processing
+    for ch in 0..channels.count() {
+        let samples = buffer.chan(ch);
+        // ...
+    }
+}
+```
+
+## Working with Sample Rates
+
+```rust
+use symphonia::core::audio::SignalSpec;
+
+let spec = decoded.spec();
+
+// Common sample rates
+match spec.rate {
+    44100 => println!("CD quality"),
+    48000 => println!("Professional audio"),
+    88200 | 96000 => println!("High resolution"),
+    _ => println!("Sample rate: {} Hz", spec.rate),
+}
+
+// Calculate duration
+let frames = decoded.frames();
+let duration_secs = frames as f64 / spec.rate as f64;
+println!("Duration: {:.2} seconds", duration_secs);
+```
+
+## Complete Example
+
+```rust
+use symphonia::core::audio::{SignalSpec, Layout, Channels};
+use symphonia::core::audio::AudioBuffer;
+
+fn process_audio(decoded: AudioBufferRef) {
+    let spec = decoded.spec();
+    
+    println!("Sample rate: {} Hz", spec.rate);
+    println!("Channels: {}", spec.channels.count());
+    
+    // Check for common layouts
+    if spec.channels == Layout::Stereo.into_channels() {
+        println!("Stereo audio detected");
+        
+        match decoded {
+            AudioBufferRef::F32(buf) => {
+                let left = buf.chan(0);
+                let right = buf.chan(1);
+                
+                // Process stereo
+                for (l, r) in left.iter().zip(right.iter()) {
+                    // ...
+                }
+            }
+            _ => { /* Handle other formats */ }
+        }
+    } else {
+        println!("Multi-channel audio");
+        
+        // Generic processing
+        for ch in 0..spec.channels.count() {
+            println!("Processing channel {}", ch);
+        }
+    }
+}
+```
+
+## See Also
+
+- [AudioBuffer](/api/audio/audio-buffer) - Multi-channel audio container
+- [SampleBuffer](/api/audio/sample-buffer) - Sample-oriented buffer

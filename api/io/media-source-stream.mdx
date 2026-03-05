@@ -1,0 +1,544 @@
+---
+title: MediaSourceStream
+description: High-performance buffered reader for media sources
+---
+
+`MediaSourceStream` is Symphonia's primary reader type, providing an optimized buffered interface for reading media data with support for seeking and rewinding.
+
+## Overview
+
+MediaSourceStream is Symphonia's equivalent to `std::io::BufReader` but with enhancements specifically designed for multimedia use cases:
+
+- **Exponentially growing read-ahead buffer** (1KB → 32KB)
+- **Configurable ring buffer** for backwards seeking without invalidating cache
+- **Type-erased design** supporting any MediaSource at runtime
+- **Optimized byte reading** with minimal overhead
+
+## Creating MediaSourceStream
+
+### `new`
+
+```rust
+pub fn new(
+    source: Box<dyn MediaSource>,
+    options: MediaSourceStreamOptions
+) -> Self
+```
+
+Creates a new MediaSourceStream wrapping the provided media source.
+
+<ParamField path="source" type="Box<dyn MediaSource>" required>
+  The media source to read from (File, Cursor, ReadOnlySource, etc.)
+</ParamField>
+
+<ParamField path="options" type="MediaSourceStreamOptions" required>
+  Buffering configuration options
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::io::MediaSourceStream;
+use std::fs::File;
+
+let file = File::open("audio.mp3")?;
+let mss = MediaSourceStream::new(Box::new(file), Default::default());
+```
+
+## MediaSourceStreamOptions
+
+Configuration for MediaSourceStream buffering behavior.
+
+```rust
+pub struct MediaSourceStreamOptions {
+    pub buffer_len: usize,
+}
+```
+
+<ResponseField name="buffer_len" type="usize">
+  Maximum buffer size in bytes. Must be a power of 2 and > 32KB. Default: 64KB
+</ResponseField>
+
+### Default Configuration
+
+```rust
+let options = MediaSourceStreamOptions::default();
+// buffer_len = 64 * 1024 (64KB)
+```
+
+### Custom Configuration
+
+```rust
+use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
+
+let options = MediaSourceStreamOptions {
+    buffer_len: 128 * 1024, // 128KB buffer
+};
+
+let mss = MediaSourceStream::new(source, options);
+```
+
+<Warning>
+`buffer_len` must be:
+- A power of 2 (e.g., 64KB, 128KB, 256KB)
+- Greater than 32KB (the maximum read-ahead block size)
+
+Invalid values will cause a panic.
+</Warning>
+
+## Reading Data
+
+MediaSourceStream implements the `ReadBytes` trait, providing methods for reading integers, floats, and raw bytes.
+
+### Basic Reading
+
+#### `read_byte`
+
+```rust
+fn read_byte(&mut self) -> io::Result<u8>
+```
+
+Reads a single byte. This is the most frequently used operation and is highly optimized.
+
+#### `read_buf`
+
+```rust
+fn read_buf(&mut self, buf: &mut [u8]) -> io::Result<usize>
+```
+
+Reads up to `buf.len()` bytes into the buffer. Returns the number of bytes read.
+
+#### `read_buf_exact`
+
+```rust
+fn read_buf_exact(&mut self, buf: &mut [u8]) -> io::Result<()>
+```
+
+Reads exactly `buf.len()` bytes or returns an error.
+
+**Example:**
+
+```rust
+use symphonia::core::io::ReadBytes;
+
+// Read single byte
+let byte = mss.read_byte()?;
+
+// Read buffer
+let mut buf = [0u8; 1024];
+let bytes_read = mss.read_buf(&mut buf)?;
+
+// Read exact amount
+let mut header = [0u8; 16];
+mss.read_buf_exact(&mut header)?;
+```
+
+### Integer Reading
+
+#### Little-Endian
+
+```rust
+fn read_u8(&mut self) -> io::Result<u8>
+fn read_u16(&mut self) -> io::Result<u16>
+fn read_u24(&mut self) -> io::Result<u32>
+fn read_u32(&mut self) -> io::Result<u32>
+fn read_u64(&mut self) -> io::Result<u64>
+
+fn read_i8(&mut self) -> io::Result<i8>
+fn read_i16(&mut self) -> io::Result<i16>
+fn read_i24(&mut self) -> io::Result<i32>
+fn read_i32(&mut self) -> io::Result<i32>
+fn read_i64(&mut self) -> io::Result<i64>
+```
+
+#### Big-Endian
+
+```rust
+fn read_be_u16(&mut self) -> io::Result<u16>
+fn read_be_u24(&mut self) -> io::Result<u32>
+fn read_be_u32(&mut self) -> io::Result<u32>
+fn read_be_u64(&mut self) -> io::Result<u64>
+
+fn read_be_i16(&mut self) -> io::Result<i16>
+fn read_be_i24(&mut self) -> io::Result<i32>
+fn read_be_i32(&mut self) -> io::Result<i32>
+fn read_be_i64(&mut self) -> io::Result<i64>
+```
+
+**Example:**
+
+```rust
+use symphonia::core::io::ReadBytes;
+
+// Read little-endian
+let sample_rate = mss.read_u32()?;
+let frame_count = mss.read_u64()?;
+
+// Read big-endian  
+let chunk_size = mss.read_be_u32()?;
+let timestamp = mss.read_be_u64()?;
+
+// Read 24-bit values
+let sample_24bit = mss.read_i24()?;
+```
+
+### Floating-Point Reading
+
+```rust
+// Little-endian
+fn read_f32(&mut self) -> io::Result<f32>
+fn read_f64(&mut self) -> io::Result<f64>
+
+// Big-endian
+fn read_be_f32(&mut self) -> io::Result<f32>
+fn read_be_f64(&mut self) -> io::Result<f64>
+```
+
+### Boxed Slices
+
+```rust
+fn read_boxed_slice(&mut self, len: usize) -> io::Result<Box<[u8]>>
+fn read_boxed_slice_exact(&mut self, len: usize) -> io::Result<Box<[u8]>>
+```
+
+Reads data into a newly allocated boxed slice.
+
+**Example:**
+
+```rust
+let chunk_data = mss.read_boxed_slice_exact(1024)?;
+```
+
+## Skipping Data
+
+### `ignore_bytes`
+
+```rust
+fn ignore_bytes(&mut self, count: u64) -> io::Result<()>
+```
+
+Skips the specified number of bytes. Optimized for seekable sources.
+
+**Example:**
+
+```rust
+// Skip padding
+mss.ignore_bytes(512)?;
+
+// Skip to next chunk
+mss.ignore_bytes(chunk_size as u64)?;
+```
+
+<Note>
+For seekable sources and large skip distances (>= 2x buffer size), this performs an optimized seek operation while maintaining the buffer cache.
+</Note>
+
+## Position Tracking
+
+### `pos`
+
+```rust
+fn pos(&self) -> u64
+```
+
+Returns the current position in the stream.
+
+**Example:**
+
+```rust
+let position = mss.pos();
+println!("Current position: {} bytes", position);
+```
+
+## Seeking
+
+### Standard Seeking
+
+MediaSourceStream implements `std::io::Seek`:
+
+```rust
+use std::io::{Seek, SeekFrom};
+
+// Seek to absolute position
+mss.seek(SeekFrom::Start(1024))?;
+
+// Seek relative to current position
+mss.seek(SeekFrom::Current(512))?;
+
+// Seek from end
+mss.seek(SeekFrom::End(-1024))?;
+```
+
+<Warning>
+Regular `seek()` calls invalidate the buffer cache and reset the read-ahead behavior. For small backwards seeks, use buffered seeking instead.
+</Warning>
+
+### Buffered Seeking
+
+MediaSourceStream implements `SeekBuffered` for efficient seeking within the cached buffer:
+
+#### `seek_buffered`
+
+```rust
+fn seek_buffered(&mut self, pos: u64) -> u64
+```
+
+Seeks to an absolute position within the buffered data. Returns the position seeked to.
+
+#### `seek_buffered_rel`
+
+```rust
+fn seek_buffered_rel(&mut self, delta: isize) -> u64
+```
+
+Seeks relative to the current position within buffered data. Returns the new position.
+
+#### `seek_buffered_rev`
+
+```rust
+fn seek_buffered_rev(&mut self, delta: usize)
+```
+
+Seeks backwards within the buffered data.
+
+**Example:**
+
+```rust
+use symphonia::core::io::SeekBuffered;
+
+// Read some data
+let value1 = mss.read_u32()?;
+let value2 = mss.read_u32()?;
+
+// Rewind to re-read value1
+mss.seek_buffered_rev(4);
+let value1_again = mss.read_u32()?;
+assert_eq!(value1, value1_again);
+
+// Seek forward
+mss.seek_buffered_rel(8);
+```
+
+### Buffer Management
+
+#### `ensure_seekback_buffer`
+
+```rust
+fn ensure_seekback_buffer(&mut self, len: usize)
+```
+
+Ensures that at least `len` bytes will be available for backwards seeking.
+
+<ParamField path="len" type="usize" required>
+  Number of bytes that should be rewindable
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::io::SeekBuffered;
+
+// Ensure we can rewind up to 4KB
+mss.ensure_seekback_buffer(4096);
+
+// Read data...
+for _ in 0..1024 {
+    mss.read_u32()?;
+}
+
+// Can safely rewind 4KB
+mss.seek_buffered_rev(4096);
+```
+
+#### `unread_buffer_len`
+
+```rust
+fn unread_buffer_len(&self) -> usize
+```
+
+Returns the number of bytes buffered but not yet read. This is the maximum forward seek distance within the buffer.
+
+#### `read_buffer_len`
+
+```rust
+fn read_buffer_len(&self) -> usize
+```
+
+Returns the number of bytes buffered and already read. This is the maximum backward seek distance within the buffer.
+
+**Example:**
+
+```rust
+use symphonia::core::io::SeekBuffered;
+
+let can_rewind = mss.read_buffer_len();
+let can_skip_ahead = mss.unread_buffer_len();
+
+println!("Can seek back {} bytes", can_rewind);
+println!("Can seek forward {} bytes", can_skip_ahead);
+```
+
+## Read-Ahead Behavior
+
+MediaSourceStream uses an exponentially growing read-ahead strategy:
+
+1. **Initial read**: 1KB
+2. **Doubles on each read**: 2KB → 4KB → 8KB → 16KB
+3. **Maximum**: 32KB per read
+
+This strategy:
+- Minimizes overhead on consecutive seeks (small initial reads)
+- Amortizes system call overhead for sequential reading (grows to 32KB)
+- Reduces excess buffering when seeking frequently
+
+```rust
+// First read: fetches 1KB
+let byte1 = mss.read_byte()?;
+
+// Buffer exhausted, next fetch: 2KB
+for _ in 0..1024 {
+    mss.read_byte()?;
+}
+
+// Continues doubling until 32KB max
+```
+
+## Ring Buffer
+
+MediaSourceStream uses a ring buffer to enable backwards seeking without invalidating the cache:
+
+```
+[================== Ring Buffer ==================]
+           ^read_pos          ^write_pos
+           |
+           Current position
+           
+<-- Can seek back  |  Can seek forward -->
+```
+
+- Default size: 64KB
+- Wraps around when full
+- Maintains both read and unread portions
+- Grows automatically when `ensure_seekback_buffer()` requests more space
+
+## Complete Example
+
+```rust
+use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions, ReadBytes, SeekBuffered};
+use std::fs::File;
+use std::io::{Seek, SeekFrom};
+
+fn process_media_stream() -> Result<(), Box<dyn std::error::Error>> {
+    // Open file
+    let file = File::open("audio.wav")?;
+    
+    // Create stream with custom buffer size
+    let options = MediaSourceStreamOptions {
+        buffer_len: 128 * 1024, // 128KB
+    };
+    let mut mss = MediaSourceStream::new(Box::new(file), options);
+    
+    // Ensure we can rewind 1KB
+    mss.ensure_seekback_buffer(1024);
+    
+    // Read header
+    let mut magic = [0u8; 4];
+    mss.read_buf_exact(&mut magic)?;
+    
+    if &magic != b"RIFF" {
+        // Oops, rewind and try again
+        mss.seek_buffered_rev(4);
+        mss.read_buf_exact(&mut magic)?;
+    }
+    
+    // Read chunk size (little-endian)
+    let chunk_size = mss.read_u32()?;
+    println!("Chunk size: {}", chunk_size);
+    
+    // Read format tag
+    let mut format = [0u8; 4];
+    mss.read_buf_exact(&mut format)?;
+    
+    // Skip to data chunk (example)
+    mss.ignore_bytes(1024)?;
+    
+    // Read samples
+    let sample_count = 100;
+    for _ in 0..sample_count {
+        let sample = mss.read_i16()?;
+        // Process sample...
+    }
+    
+    // Check buffer status
+    println!("Can rewind {} bytes", mss.read_buffer_len());
+    println!("Can skip {} bytes", mss.unread_buffer_len());
+    
+    // Seek to specific position (invalidates cache)
+    mss.seek(SeekFrom::Start(5000))?;
+    
+    Ok(())
+}
+```
+
+## Performance Tips
+
+<Note>
+**Best Practices:**
+
+1. **Reuse MediaSourceStream** - Don't create multiple instances for the same source
+2. **Use buffered seeking** - Prefer `seek_buffered_*` over `seek()` for small movements
+3. **Batch reads** - Use `read_buf()` for bulk data instead of repeated `read_byte()`
+4. **Cache seekability** - Call `is_seekable()` once and cache the result
+5. **Right-size buffer** - Default 64KB is good for most cases; increase for high-bitrate media
+</Note>
+
+## Common Patterns
+
+### Reading Until Pattern
+
+```rust
+use symphonia::core::io::ReadBytes;
+
+fn read_until_zero(mss: &mut MediaSourceStream) -> io::Result<Vec<u8>> {
+    let mut data = Vec::new();
+    loop {
+        let byte = mss.read_byte()?;
+        if byte == 0 {
+            break;
+        }
+        data.push(byte);
+    }
+    Ok(data)
+}
+```
+
+### Peeking Data
+
+```rust
+use symphonia::core::io::{ReadBytes, SeekBuffered};
+
+fn peek_u32(mss: &mut MediaSourceStream) -> io::Result<u32> {
+    let value = mss.read_u32()?;
+    mss.seek_buffered_rev(4); // Rewind
+    Ok(value)
+}
+```
+
+### Aligned Reading
+
+```rust
+fn align_to(mss: &mut MediaSourceStream, alignment: u64) -> io::Result<()> {
+    let pos = mss.pos();
+    let remainder = pos % alignment;
+    if remainder != 0 {
+        let skip = alignment - remainder;
+        mss.ignore_bytes(skip)?;
+    }
+    Ok(())
+}
+```
+
+## See Also
+
+- [MediaSource](/api/io/media-source) - Source trait and implementations
+- [Getting Started](/quickstart) - Basic usage guide

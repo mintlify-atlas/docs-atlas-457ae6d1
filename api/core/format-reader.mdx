@@ -1,0 +1,559 @@
+---
+title: 'FormatReader'
+description: 'Container demuxer interface for reading and extracting packets from media streams'
+---
+
+## Overview
+
+The `FormatReader` trait defines the interface for container demuxers. It provides methods to probe media containers, enumerate tracks, read packets, perform seeks, and access metadata and cue points.
+
+## FormatReader Trait
+
+### Definition
+
+```rust
+pub trait FormatReader: Send + Sync {
+    fn try_new(source: MediaSourceStream, options: &FormatOptions) -> Result<Self>
+    where
+        Self: Sized;
+    fn cues(&self) -> &[Cue];
+    fn metadata(&mut self) -> Metadata<'_>;
+    fn seek(&mut self, mode: SeekMode, to: SeekTo) -> Result<SeekedTo>;
+    fn tracks(&self) -> &[Track];
+    fn default_track(&self) -> Option<&Track>;
+    fn next_packet(&mut self) -> Result<Packet>;
+    fn into_inner(self: Box<Self>) -> MediaSourceStream;
+}
+```
+
+A container demuxer that reads packetized, interleaved codec bitstreams from media containers.
+
+### Methods
+
+#### try_new
+
+```rust
+fn try_new(source: MediaSourceStream, options: &FormatOptions) -> Result<Self>
+where
+    Self: Sized
+```
+
+Attempt to instantiate a `FormatReader` using the provided options and media source stream. The reader probes the container to verify format support, determine tracks, and read initial metadata.
+
+<ParamField path="source" type="MediaSourceStream">
+  The media source stream to read from
+</ParamField>
+
+<ParamField path="options" type="&FormatOptions">
+  Options for the format reader
+</ParamField>
+
+<ResponseField name="Self" type="Result<Self>">
+  The instantiated format reader or an error
+</ResponseField>
+
+#### tracks
+
+```rust
+fn tracks(&self) -> &[Track]
+```
+
+Get a list of all tracks in the container.
+
+<ResponseField name="&[Track]" type="&[Track]">
+  Slice of tracks in the media container
+</ResponseField>
+
+**Example:**
+
+```rust
+for track in format.tracks() {
+    println!("Track {}: codec={:?}, language={:?}",
+        track.id, 
+        track.codec_params.codec,
+        track.language
+    );
+}
+```
+
+#### default_track
+
+```rust
+fn default_track(&self) -> Option<&Track>
+```
+
+Get the default track. If the format has a method of determining the default track, this returns it. Otherwise, returns the first track, or `None` if no tracks are present.
+
+<ResponseField name="Option<&Track>" type="Option<&Track>">
+  The default track if available
+</ResponseField>
+
+**Example:**
+
+```rust
+if let Some(track) = format.default_track() {
+    let decoder = codec_registry.make(&track.codec_params, &decoder_opts)?;
+}
+```
+
+#### next_packet
+
+```rust
+fn next_packet(&mut self) -> Result<Packet>
+```
+
+Get the next packet from the container.
+
+<ResponseField name="Packet" type="Result<Packet>">
+  The next packet, or an error. Returns `ResetRequired` if the track list must be re-examined.
+</ResponseField>
+
+**Example:**
+
+```rust
+loop {
+    let packet = match format.next_packet() {
+        Ok(packet) => packet,
+        Err(Error::IoError(err)) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
+            break;
+        }
+        Err(err) => return Err(err),
+    };
+
+    // Process packet...
+}
+```
+
+#### seek
+
+```rust
+fn seek(&mut self, mode: SeekMode, to: SeekTo) -> Result<SeekedTo>
+```
+
+Seek to the specified time or timestamp. Returns the requested and actual timestamps seeked to.
+
+<ParamField path="mode" type="SeekMode">
+  The seek precision mode (`Coarse` or `Accurate`)
+</ParamField>
+
+<ParamField path="to" type="SeekTo">
+  The position to seek to (time or timestamp)
+</ParamField>
+
+<ResponseField name="SeekedTo" type="Result<SeekedTo>">
+  Information about the seek result including actual position
+</ResponseField>
+
+<Note>
+After a seek, all decoders consuming packets from this reader should be reset using `Decoder::reset()`.
+</Note>
+
+<Warning>
+The `FormatReader` can only seek to the nearest packet, not to an exact frame. For sample-accurate seeking, the decoder must decode packets until the requested position is reached. With `SeekMode::Accurate`, the seeked position is always before the requested position.
+</Warning>
+
+**Example:**
+
+```rust
+use symphonia::core::formats::{SeekMode, SeekTo};
+use symphonia::core::units::Time;
+
+// Seek to 30 seconds
+let seeked = format.seek(
+    SeekMode::Accurate,
+    SeekTo::Time { 
+        time: Time::new(30, 0.0),
+        track_id: None 
+    }
+)?;
+
+println!("Seeked to timestamp: {}", seeked.actual_ts);
+
+// Reset decoder after seek
+decoder.reset();
+```
+
+#### metadata
+
+```rust
+fn metadata(&mut self) -> Metadata<'_>
+```
+
+Get the metadata revision log.
+
+<ResponseField name="Metadata" type="Metadata<'_>">
+  The current metadata
+</ResponseField>
+
+**Example:**
+
+```rust
+let metadata = format.metadata();
+if let Some(rev) = metadata.current() {
+    for tag in rev.tags() {
+        println!("{}: {}", tag.std_key, tag.value);
+    }
+}
+```
+
+#### cues
+
+```rust
+fn cues(&self) -> &[Cue]
+```
+
+Get all cue points (chapters, timestamps, etc.) in the media.
+
+<ResponseField name="&[Cue]" type="&[Cue]">
+  Slice of cues
+</ResponseField>
+
+**Example:**
+
+```rust
+for cue in format.cues() {
+    println!("Cue {}: timestamp={}", cue.index, cue.start_ts);
+    for tag in &cue.tags {
+        println!("  {}: {}", tag.std_key, tag.value);
+    }
+}
+```
+
+#### into_inner
+
+```rust
+fn into_inner(self: Box<Self>) -> MediaSourceStream
+```
+
+Destroy the `FormatReader` and return the underlying media source stream.
+
+<ResponseField name="MediaSourceStream" type="MediaSourceStream">
+  The underlying media source stream
+</ResponseField>
+
+## Supporting Types
+
+### Track
+
+```rust
+pub struct Track {
+    pub id: u32,
+    pub codec_params: CodecParameters,
+    pub language: Option<String>,
+}
+```
+
+Represents an independently coded media bitstream within a container.
+
+<ParamField path="id" type="u32">
+  Unique identifier for the track
+</ParamField>
+
+<ParamField path="codec_params" type="CodecParameters">
+  Codec parameters for the track
+</ParamField>
+
+<ParamField path="language" type="Option<String>">
+  Language of the track (may be unknown)
+</ParamField>
+
+#### new
+
+```rust
+pub fn new(id: u32, codec_params: CodecParameters) -> Self
+```
+
+Create a new track.
+
+### Packet
+
+```rust
+pub struct Packet {
+    track_id: u32,
+    pub ts: u64,
+    pub dur: u64,
+    pub trim_start: u32,
+    pub trim_end: u32,
+    pub data: Box<[u8]>,
+}
+```
+
+Contains a discrete amount of encoded data for a single codec bitstream.
+
+<ParamField path="track_id" type="u32">
+  The track this packet belongs to
+</ParamField>
+
+<ParamField path="ts" type="u64">
+  Timestamp in `TimeBase` units (relative to end of encoder delay if gapless is enabled)
+</ParamField>
+
+<ParamField path="dur" type="u64">
+  Duration in `TimeBase` units (excluding delay/padding if gapless is enabled)
+</ParamField>
+
+<ParamField path="trim_start" type="u32">
+  Number of frames to trim from start (encoder delay)
+</ParamField>
+
+<ParamField path="trim_end" type="u32">
+  Number of frames to trim from end (encoder padding)
+</ParamField>
+
+<ParamField path="data" type="Box<[u8]>">
+  The packet data buffer
+</ParamField>
+
+#### Methods
+
+**Construction:**
+
+```rust
+pub fn new_from_slice(track_id: u32, ts: u64, dur: u64, buf: &[u8]) -> Self
+pub fn new_from_boxed_slice(track_id: u32, ts: u64, dur: u64, data: Box<[u8]>) -> Self
+pub fn new_trimmed_from_slice(
+    track_id: u32, ts: u64, dur: u64, 
+    trim_start: u32, trim_end: u32, 
+    buf: &[u8]
+) -> Self
+pub fn new_trimmed_from_boxed_slice(
+    track_id: u32, ts: u64, dur: u64,
+    trim_start: u32, trim_end: u32,
+    data: Box<[u8]>
+) -> Self
+```
+
+**Accessors:**
+
+```rust
+pub fn track_id(&self) -> u32
+pub fn ts(&self) -> u64
+pub fn dur(&self) -> u64
+pub fn block_dur(&self) -> u64  // Duration without trimming
+pub fn trim_start(&self) -> u32
+pub fn trim_end(&self) -> u32
+pub fn buf(&self) -> &[u8]
+pub fn as_buf_reader(&self) -> BufReader<'_>
+```
+
+### Cue
+
+```rust
+pub struct Cue {
+    pub index: u32,
+    pub start_ts: u64,
+    pub tags: Vec<Tag>,
+    pub points: Vec<CuePoint>,
+}
+```
+
+A designated point of time within a media stream (chapter, cuesheet entry, etc.).
+
+<ParamField path="index" type="u32">
+  Unique index for the cue
+</ParamField>
+
+<ParamField path="start_ts" type="u64">
+  Starting timestamp in frames from the start of the stream
+</ParamField>
+
+<ParamField path="tags" type="Vec<Tag>">
+  Tags associated with the cue (title, artist, etc.)
+</ParamField>
+
+<ParamField path="points" type="Vec<CuePoint>">
+  Sub-points within this cue
+</ParamField>
+
+### CuePoint
+
+```rust
+pub struct CuePoint {
+    pub start_offset_ts: u64,
+    pub tags: Vec<Tag>,
+}
+```
+
+A point within a parent cue, providing more precise indexing.
+
+<ParamField path="start_offset_ts" type="u64">
+  Offset of the first frame relative to the parent cue's start
+</ParamField>
+
+<ParamField path="tags" type="Vec<Tag>">
+  Tags associated with this cue point
+</ParamField>
+
+## Seeking Types
+
+### SeekTo
+
+```rust
+pub enum SeekTo {
+    Time {
+        time: Time,
+        track_id: Option<u32>,
+    },
+    TimeStamp {
+        ts: TimeStamp,
+        track_id: u32,
+    },
+}
+```
+
+Specifies a position to seek to.
+
+<ParamField path="Time" type="Time">
+  Seek to a time in regular time units. If `track_id` is `None`, uses the default track.
+</ParamField>
+
+<ParamField path="TimeStamp" type="TimeStamp">
+  Seek to a timestamp in a specific track's timebase units
+</ParamField>
+
+### SeekedTo
+
+```rust
+pub struct SeekedTo {
+    pub track_id: u32,
+    pub required_ts: TimeStamp,
+    pub actual_ts: TimeStamp,
+}
+```
+
+The result of a seek operation.
+
+<ParamField path="track_id" type="u32">
+  The track the seek was relative to
+</ParamField>
+
+<ParamField path="required_ts" type="TimeStamp">
+  The timestamp that was requested
+</ParamField>
+
+<ParamField path="actual_ts" type="TimeStamp">
+  The timestamp that was actually seeked to
+</ParamField>
+
+### SeekMode
+
+```rust
+pub enum SeekMode {
+    Coarse,
+    Accurate,
+}
+```
+
+Selects the precision of a seek.
+
+<ParamField path="Coarse" type="variant">
+  Best-effort seek that may land before or after the requested position. Optional performance enhancement; may fall back to accurate seeking.
+</ParamField>
+
+<ParamField path="Accurate" type="variant">
+  Sample-accurate seek that always lands before the requested position
+</ParamField>
+
+## FormatOptions
+
+```rust
+pub struct FormatOptions {
+    pub prebuild_seek_index: bool,
+    pub seek_index_fill_rate: u16,
+    pub enable_gapless: bool,
+}
+```
+
+Common options for all demuxers.
+
+<ParamField path="prebuild_seek_index" type="bool">
+  If a seek index is required but not provided by the container, build it during instantiation instead of progressively. Default: `false`.
+</ParamField>
+
+<ParamField path="seek_index_fill_rate" type="u16">
+  How often in seconds of decoded content to add a seek index entry. Default: `20`. Lower values use more memory but require less I/O during seeks.
+</ParamField>
+
+<ParamField path="enable_gapless" type="bool">
+  Enable gapless playback support. Default: `false`. When enabled, provides trim information and adjusts timestamps/durations to exclude encoder delay and padding.
+</ParamField>
+
+## Complete Example
+
+```rust
+use symphonia::core::formats::{FormatOptions, SeekMode, SeekTo};
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::units::Time;
+use std::fs::File;
+
+fn read_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Open and probe the file
+    let file = File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    
+    let mut hint = Hint::new();
+    hint.with_extension("flac");
+
+    let probe = symphonia::default::get_probe();
+    let mut format_opts = FormatOptions::default();
+    format_opts.enable_gapless = true;
+
+    let probed = probe.format(&hint, mss, &format_opts, &MetadataOptions::default())?;
+    let mut format = probed.format;
+
+    // Print tracks
+    println!("Tracks:");
+    for track in format.tracks() {
+        println!("  Track {}: {:?}", track.id, track.codec_params.codec);
+    }
+
+    // Print cues/chapters
+    println!("\nChapters:");
+    for cue in format.cues() {
+        println!("  Cue {}: start={}", cue.index, cue.start_ts);
+    }
+
+    // Select default track
+    let track = format.default_track().unwrap();
+    let codec_registry = symphonia::default::get_codecs();
+    let mut decoder = codec_registry.make(
+        &track.codec_params,
+        &Default::default()
+    )?;
+
+    // Seek to 30 seconds
+    let seeked = format.seek(
+        SeekMode::Accurate,
+        SeekTo::Time { 
+            time: Time::new(30, 0.0),
+            track_id: Some(track.id)
+        }
+    )?;
+    decoder.reset();
+
+    // Read and decode packets
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(_) => break,
+        };
+
+        if packet.track_id() != track.id {
+            continue;
+        }
+
+        let decoded = decoder.decode(&packet)?;
+        // Process decoded audio...
+    }
+
+    Ok(())
+}
+```
+
+## See Also
+
+- [Probe](/api/core/probe) - Format detection and probing
+- [Decoder](/api/core/decoder) - Audio decoding
+- [Core Overview](/api/core/overview) - Core API overview

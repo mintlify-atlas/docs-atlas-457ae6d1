@@ -1,0 +1,431 @@
+---
+title: Format Detection
+description: Automatically detect and probe media formats from streams and files
+icon: magnifying-glass
+---
+
+Symphonia can automatically detect the format of audio files by examining the stream content, or you can provide hints to optimize the detection process.
+
+## Overview
+
+Format detection in Symphonia uses a `Probe` to:
+
+1. Scan the media stream for format markers
+2. Identify the container format
+3. Read any leading metadata
+4. Instantiate the appropriate `FormatReader`
+
+This allows you to handle multiple formats without knowing the format in advance.
+
+## Using Probe for Auto-Detection
+
+The simplest way to detect formats is to use the default probe.
+
+<Steps>
+  <Step title="Create a media source">
+    ```rust
+    use std::fs::File;
+    use symphonia::core::io::MediaSourceStream;
+
+    let file = File::open("audio.mp3")?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    ```
+  </Step>
+
+  <Step title="Get the default probe">
+    ```rust
+    use symphonia::core::probe::Hint;
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::meta::MetadataOptions;
+
+    // Get probe with all enabled formats registered
+    let probe = symphonia::default::get_probe();
+    
+    let hint = Hint::new();
+    let fmt_opts = FormatOptions::default();
+    let meta_opts = MetadataOptions::default();
+
+    // Probe will auto-detect the format
+    let probed = probe.format(&hint, mss, &fmt_opts, &meta_opts)?;
+    ```
+  </Step>
+
+  <Step title="Use the format reader">
+    ```rust
+    let mut format = probed.format;
+    
+    // The correct format reader is now instantiated
+    println!("Detected format tracks: {}", format.tracks().len());
+    
+    // Use format reader normally
+    let packet = format.next_packet()?;
+    ```
+  </Step>
+</Steps>
+
+## Providing Hints
+
+Hints help the probe make faster, more accurate detection decisions by providing context that isn't available in the stream itself.
+
+### File Extension Hints
+
+```rust
+use symphonia::core::probe::Hint;
+use std::path::Path;
+
+let path = Path::new("audio.mp3");
+let mut hint = Hint::new();
+
+// Provide file extension (without the dot)
+if let Some(extension) = path.extension() {
+    if let Some(ext_str) = extension.to_str() {
+        hint.with_extension(ext_str);
+    }
+}
+
+let probed = symphonia::default::get_probe()
+    .format(&hint, mss, &fmt_opts, &meta_opts)?;
+```
+
+### MIME Type Hints
+
+```rust
+use symphonia::core::probe::Hint;
+
+let mut hint = Hint::new();
+
+// Provide MIME type (e.g., from HTTP Content-Type header)
+hint.mime_type("audio/mpeg");
+
+let probed = symphonia::default::get_probe()
+    .format(&hint, mss, &fmt_opts, &meta_opts)?;
+```
+
+### Combining Hints
+
+```rust
+let mut hint = Hint::new();
+hint.with_extension("mp3");
+hint.mime_type("audio/mpeg");
+
+// Both hints will be used
+let probed = probe.format(&hint, mss, &fmt_opts, &meta_opts)?;
+```
+
+<Tip>
+  Hints are optional and won't cause problems if they're incorrect. They simply help optimize the detection process.
+</Tip>
+
+## How Format Detection Works
+
+Understanding the detection process can help you debug issues.
+
+### Detection Process
+
+<Steps>
+  <Step title="Check hints">
+    The probe first checks if any registered formats match the provided hints (extension or MIME type).
+  </Step>
+
+  <Step title="Scan for markers">
+    The probe scans the stream byte-by-byte looking for format-specific markers:
+    
+    - MP3: `0xFF 0xFB` (frame sync)
+    - OGG: `OggS` (capture pattern)
+    - FLAC: `fLaC` (stream marker)
+    - MP4: `ftyp` (file type box)
+    - WAV: `RIFF...WAVE`
+  </Step>
+
+  <Step title="Verify format">
+    When a potential marker is found, the probe attempts to instantiate the format reader to verify it's the correct format.
+  </Step>
+
+  <Step title="Read metadata">
+    If metadata blocks are encountered (like ID3v2 in MP3), they're read and queued before the format reader starts.
+  </Step>
+</Steps>
+
+### Search Limits
+
+The probe has built-in limits to prevent excessive scanning:
+
+```rust
+// From probe.rs
+const PROBE_SEARCH_LIMIT: u64 = 1 * 1024 * 1024; // 1 MB
+```
+
+If no format is detected within the first 1 MB, probing fails.
+
+<Warning>
+  For streams with large metadata blocks at the start (e.g., large ID3v2 tags), ensure the probe search limit isn't exceeded.
+</Warning>
+
+## Manual Format Selection
+
+If you know the format beforehand, you can skip detection and instantiate the reader directly.
+
+### Direct Instantiation
+
+```rust
+use symphonia::core::formats::{FormatOptions, FormatReader};
+use symphonia::core::io::MediaSourceStream;
+
+// For MP3 files
+use symphonia_format_mp3::Mp3Reader;
+
+let mss = MediaSourceStream::new(Box::new(file), Default::default());
+let fmt_opts = FormatOptions::default();
+
+// Directly create MP3 reader
+let format: Box<dyn FormatReader> = Box::new(
+    Mp3Reader::try_new(mss, &fmt_opts)?
+);
+```
+
+### Common Format Readers
+
+<CodeGroup>
+
+```rust MP3
+use symphonia_format_mp3::Mp3Reader;
+
+let format = Box::new(Mp3Reader::try_new(mss, &fmt_opts)?);
+```
+
+```rust FLAC
+use symphonia_format_ogg::OggReader;
+
+let format = Box::new(OggReader::try_new(mss, &fmt_opts)?);
+```
+
+```rust WAV
+use symphonia_format_wav::WavReader;
+
+let format = Box::new(WavReader::try_new(mss, &fmt_opts)?);
+```
+
+```rust MP4/M4A
+use symphonia_format_isomp4::IsoMp4Reader;
+
+let format = Box::new(IsoMp4Reader::try_new(mss, &fmt_opts)?);
+```
+
+</CodeGroup>
+
+<Tip>
+  Manual instantiation is faster but requires you to know the format in advance. Use auto-detection for general-purpose applications.
+</Tip>
+
+## Handling Misdetection
+
+Sometimes format detection can fail or produce incorrect results.
+
+### Common Causes
+
+<AccordionGroup>
+  <Accordion title="Corrupted Files">
+    Files with corrupted headers or missing format markers may not be detected:
+
+    ```rust
+    use symphonia::core::errors::Error;
+
+    match probe.format(&hint, mss, &fmt_opts, &meta_opts) {
+        Ok(probed) => {
+            // Success
+        }
+        Err(Error::Unsupported(msg)) => {
+            eprintln!("Format not detected: {}", msg);
+            // Try with a hint or manual format
+        }
+        Err(e) => {
+            eprintln!("Probe error: {}", e);
+        }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Missing Format Support">
+    The format may not be enabled in your build:
+
+    ```toml
+    [dependencies]
+    symphonia = { version = "0.5", features = [
+        "mp3",    # Enable MP3
+        "aac",    # Enable AAC
+        "isomp4", # Enable MP4 container
+    ] }
+    ```
+  </Accordion>
+
+  <Accordion title="Ambiguous Markers">
+    Some formats have similar markers. Provide hints to disambiguate:
+
+    ```rust
+    // File could be MP3 or AAC in MP4
+    let mut hint = Hint::new();
+    hint.with_extension("m4a");  // Favor MP4 container
+    
+    let probed = probe.format(&hint, mss, &fmt_opts, &meta_opts)?;
+    ```
+  </Accordion>
+
+  <Accordion title="Large Metadata Blocks">
+    If metadata is very large, the probe might not reach the format marker:
+
+    ```rust
+    // This is a Symphonia limitation
+    // Consider stripping metadata if detection fails
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Fallback Strategy
+
+```rust
+use symphonia::core::errors::Error;
+use symphonia::core::probe::Hint;
+
+fn open_audio(path: &Path) -> Result<Box<dyn FormatReader>, Error> {
+    let file = File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    
+    // Try with extension hint
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+    
+    let probe = symphonia::default::get_probe();
+    let fmt_opts = FormatOptions::default();
+    let meta_opts = MetadataOptions::default();
+    
+    match probe.format(&hint, mss, &fmt_opts, &meta_opts) {
+        Ok(probed) => Ok(probed.format),
+        Err(Error::Unsupported(_)) => {
+            // Retry without hint
+            let file = File::open(path)?;
+            let mss = MediaSourceStream::new(Box::new(file), Default::default());
+            let probed = probe.format(&Hint::new(), mss, &fmt_opts, &meta_opts)?;
+            Ok(probed.format)
+        }
+        Err(e) => Err(e),
+    }
+}
+```
+
+## Custom Format Registration
+
+For custom or unsupported formats, you can create your own probe.
+
+### Create Custom Probe
+
+```rust
+use symphonia::core::probe::{Probe, Descriptor, Instantiate};
+use symphonia::core::formats::{FormatReader, FormatOptions};
+use symphonia::core::io::MediaSourceStream;
+
+// Create a custom probe
+let mut probe = Probe::default();
+
+// Register all default formats
+symphonia::default::register_enabled_formats(&mut probe);
+
+// Register your custom format
+// (You need to implement QueryDescriptor for your format)
+use my_format::MyFormatReader;
+probe.register_all::<MyFormatReader>();
+
+// Use custom probe
+let probed = probe.format(&hint, mss, &fmt_opts, &meta_opts)?;
+```
+
+## Complete Example
+
+```rust
+use std::path::Path;
+use std::fs::File;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::probe::Hint;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::meta::MetadataOptions;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let path = Path::new("audio.mp3");
+    let file = File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    
+    // Create hint from file extension
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension() {
+        if let Some(ext_str) = ext.to_str() {
+            hint.with_extension(ext_str);
+            println!("Hint: extension = {}", ext_str);
+        }
+    }
+    
+    // Probe the format
+    let probe = symphonia::default::get_probe();
+    let fmt_opts = FormatOptions::default();
+    let meta_opts = MetadataOptions::default();
+    
+    println!("Probing format...");
+    let probed = probe.format(&hint, mss, &fmt_opts, &meta_opts)?;
+    
+    // Display detected format info
+    let format = probed.format;
+    let default_track = format.default_track()
+        .expect("no tracks found");
+    
+    println!("Format detected!");
+    println!("Tracks: {}", format.tracks().len());
+    println!("Default track ID: {}", default_track.id);
+    println!("Codec: {:?}", default_track.codec_params.codec);
+    
+    if let Some(sample_rate) = default_track.codec_params.sample_rate {
+        println!("Sample rate: {} Hz", sample_rate);
+    }
+    
+    if let Some(channels) = default_track.codec_params.channels {
+        println!("Channels: {}", channels.count());
+    }
+    
+    Ok(())
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Always Provide Hints" icon="lightbulb">
+    File extensions and MIME types significantly speed up detection and improve accuracy.
+  </Card>
+  
+  <Card title="Enable Needed Formats" icon="puzzle-piece">
+    Only enable the formats you need in your `Cargo.toml` to reduce binary size.
+  </Card>
+  
+  <Card title="Handle Detection Failures" icon="shield-halved">
+    Always handle `Error::Unsupported` gracefully and provide user feedback.
+  </Card>
+  
+  <Card title="Test Various Files" icon="vial">
+    Test format detection with files from different sources and encoders.
+  </Card>
+</CardGroup>
+
+<Warning>
+  Enabling more format support reduces the chance of misdetection but increases binary size and compilation time.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Decoding Audio" icon="music" href="/guides/decoding-audio">
+    Learn how to decode detected formats
+  </Card>
+  
+  <Card title="Custom Codecs" icon="code" href="/guides/custom-codecs">
+    Implement custom format readers
+  </Card>
+</CardGroup>

@@ -1,0 +1,423 @@
+---
+title: 'Probe'
+description: 'Auto-detection of media formats from arbitrary streams'
+---
+
+## Overview
+
+The `Probe` struct scans a `MediaSourceStream` for metadata and container formats, providing methods to automatically detect and instantiate appropriate format readers.
+
+## Probe
+
+### Definition
+
+```rust
+pub struct Probe {
+    filter: BloomFilter,
+    registered: Vec<Descriptor>,
+}
+```
+
+The `Probe` uses a bloom filter for efficient format marker detection and maintains a list of registered format descriptors.
+
+### Methods
+
+#### register_all
+
+```rust
+pub fn register_all<Q: QueryDescriptor>(&mut self)
+```
+
+Register all descriptors supported by the parameterized type.
+
+<ParamField path="Q" type="QueryDescriptor">
+  Type implementing `QueryDescriptor` trait
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::probe::Probe;
+use symphonia::format_ogg::OggReader;
+
+let mut probe = Probe::default();
+probe.register_all::<OggReader>();
+```
+
+#### register
+
+```rust
+pub fn register(&mut self, descriptor: &Descriptor)
+```
+
+Register a single format descriptor.
+
+<ParamField path="descriptor" type="&Descriptor">
+  The descriptor to register
+</ParamField>
+
+#### format
+
+```rust
+pub fn format(
+    &self,
+    hint: &Hint,
+    mss: MediaSourceStream,
+    format_opts: &FormatOptions,
+    metadata_opts: &MetadataOptions,
+) -> Result<ProbeResult>
+```
+
+Search the provided `MediaSourceStream` for a container format. Metadata read during the search is queued and attached to the format reader.
+
+<ParamField path="hint" type="&Hint">
+  Optional hints about the format (file extension, MIME type)
+</ParamField>
+
+<ParamField path="mss" type="MediaSourceStream">
+  The media source stream to probe
+</ParamField>
+
+<ParamField path="format_opts" type="&FormatOptions">
+  Options for the format reader
+</ParamField>
+
+<ParamField path="metadata_opts" type="&MetadataOptions">
+  Options for metadata parsing
+</ParamField>
+
+<ResponseField name="ProbeResult" type="Result<ProbeResult>">
+  Contains the instantiated `FormatReader` and any metadata discovered during probing
+</ResponseField>
+
+**Example:**
+
+```rust
+use symphonia::core::probe::Hint;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::io::MediaSourceStream;
+use std::fs::File;
+
+let file = File::open("audio.ogg")?;
+let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+let mut hint = Hint::new();
+hint.with_extension("ogg");
+
+let probe = symphonia::default::get_probe();
+let probed = probe.format(
+    &hint,
+    mss,
+    &FormatOptions::default(),
+    &MetadataOptions::default()
+)?;
+
+let mut format = probed.format;
+let metadata = probed.metadata;
+```
+
+#### next
+
+```rust
+pub fn next(&self, mss: &mut MediaSourceStream) -> Result<Instantiate>
+```
+
+Search the provided `MediaSourceStream` for the next metadata or container format marker.
+
+<ParamField path="mss" type="&mut MediaSourceStream">
+  The media source stream to search
+</ParamField>
+
+<ResponseField name="Instantiate" type="Result<Instantiate>">
+  An instantiation function for either a `FormatReader` or `MetadataReader`
+</ResponseField>
+
+## Hint
+
+### Definition
+
+```rust
+pub struct Hint {
+    extension: Option<String>,
+    mime_type: Option<String>,
+}
+```
+
+Provides additional context when probing a media source stream, such as file extensions or MIME types that may not be available from the stream itself.
+
+### Methods
+
+#### new
+
+```rust
+pub fn new() -> Self
+```
+
+Instantiate an empty `Hint`.
+
+<ResponseField name="Hint" type="Hint">
+  A new empty hint
+</ResponseField>
+
+#### with_extension
+
+```rust
+pub fn with_extension(&mut self, extension: &str) -> &mut Self
+```
+
+Add a file extension hint.
+
+<ParamField path="extension" type="&str">
+  The file extension (without the dot)
+</ParamField>
+
+<ResponseField name="&mut Hint" type="&mut Self">
+  Self for chaining
+</ResponseField>
+
+**Example:**
+
+```rust
+let mut hint = Hint::new();
+hint.with_extension("mp3");
+```
+
+#### mime_type
+
+```rust
+pub fn mime_type(&mut self, mime_type: &str) -> &mut Self
+```
+
+Add a MIME/Media-type hint.
+
+<ParamField path="mime_type" type="&str">
+  The MIME type (e.g., "audio/mpeg")
+</ParamField>
+
+<ResponseField name="&mut Hint" type="&mut Self">
+  Self for chaining
+</ResponseField>
+
+**Example:**
+
+```rust
+let mut hint = Hint::new();
+hint.mime_type("audio/ogg");
+```
+
+## ProbeResult
+
+### Definition
+
+```rust
+pub struct ProbeResult {
+    pub format: Box<dyn FormatReader>,
+    pub metadata: ProbedMetadata,
+}
+```
+
+Contains the result of a format probe operation.
+
+<ParamField path="format" type="Box<dyn FormatReader>">
+  An instance of a format reader for the probed format
+</ParamField>
+
+<ParamField path="metadata" type="ProbedMetadata">
+  Metadata read during the probe operation before the format reader was instantiated. Container metadata is available through the format reader itself.
+</ParamField>
+
+## ProbedMetadata
+
+### Definition
+
+```rust
+pub struct ProbedMetadata {
+    metadata: Option<MetadataLog>,
+}
+```
+
+Metadata discovered during probing, separate from container metadata.
+
+### Methods
+
+#### get
+
+```rust
+pub fn get(&mut self) -> Option<Metadata<'_>>
+```
+
+Returns the metadata found during probing.
+
+<ResponseField name="Option<Metadata>" type="Option<Metadata<'_>>">
+  Metadata if any was present outside the container, `None` otherwise
+</ResponseField>
+
+#### into_inner
+
+```rust
+pub fn into_inner(self) -> Option<MetadataLog>
+```
+
+Returns the inner metadata log.
+
+<ResponseField name="Option<MetadataLog>" type="Option<MetadataLog>">
+  The metadata log if present
+</ResponseField>
+
+## Descriptor
+
+### Definition
+
+```rust
+pub struct Descriptor {
+    pub short_name: &'static str,
+    pub long_name: &'static str,
+    pub extensions: &'static [&'static str],
+    pub mime_types: &'static [&'static str],
+    pub markers: &'static [&'static [u8]],
+    pub score: fn(&[u8]) -> u8,
+    pub inst: Instantiate,
+}
+```
+
+Provides declarative information about container and metadata formats.
+
+<ParamField path="short_name" type="&'static str">
+  A short ASCII-only string identifying the format
+</ParamField>
+
+<ParamField path="long_name" type="&'static str">
+  A longer, more descriptive string identifying the format
+</ParamField>
+
+<ParamField path="extensions" type="&'static [&'static str]">
+  List of case-insensitive file extensions generally used by the format
+</ParamField>
+
+<ParamField path="mime_types" type="&'static [&'static str]">
+  List of case-insensitive MIME types generally used by the format
+</ParamField>
+
+<ParamField path="markers" type="&'static [&'static [u8]]">
+  Byte-string start-of-stream markers searched for within the stream
+</ParamField>
+
+<ParamField path="score" type="fn(&[u8]) -> u8">
+  Function to score a context buffer (0-255)
+</ParamField>
+
+<ParamField path="inst" type="Instantiate">
+  Instantiation function for the format
+</ParamField>
+
+## Instantiate
+
+### Definition
+
+```rust
+pub enum Instantiate {
+    Format(fn(MediaSourceStream, &FormatOptions) -> Result<Box<dyn FormatReader>>),
+    Metadata(fn(&MetadataOptions) -> Box<dyn MetadataReader>),
+}
+```
+
+Enumeration of instantiation functions used by descriptors.
+
+<ParamField path="Format" type="fn(MediaSourceStream, &FormatOptions) -> Result<Box<dyn FormatReader>>">
+  Instantiation function for a `FormatReader`
+</ParamField>
+
+<ParamField path="Metadata" type="fn(&MetadataOptions) -> Box<dyn MetadataReader>">
+  Instantiation function for a `MetadataReader`
+</ParamField>
+
+## QueryDescriptor
+
+### Definition
+
+```rust
+pub trait QueryDescriptor {
+    fn query() -> &'static [Descriptor];
+    fn score(context: &[u8]) -> u8;
+}
+```
+
+Trait indicating that the implementer may be registered and is capable of probing.
+
+#### query
+
+```rust
+fn query() -> &'static [Descriptor]
+```
+
+Returns a list of descriptors supported by this type.
+
+<ResponseField name="&[Descriptor]" type="&'static [Descriptor]">
+  List of format descriptors
+</ResponseField>
+
+#### score
+
+```rust
+fn score(context: &[u8]) -> u8
+```
+
+Calculate and return a confidence value (0-255) for decoding the source stream.
+
+<ParamField path="context" type="&[u8]">
+  Context buffer to score
+</ParamField>
+
+<ResponseField name="u8" type="u8">
+  Confidence score from 0 (no confidence) to 255 (certain)
+</ResponseField>
+
+## Complete Example
+
+```rust
+use symphonia::core::probe::{Hint, Probe};
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::io::MediaSourceStream;
+use std::fs::File;
+
+fn probe_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Open the file
+    let file = File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    // Create hint from file path
+    let mut hint = Hint::new();
+    if let Some(ext) = std::path::Path::new(path).extension() {
+        hint.with_extension(ext.to_str().unwrap());
+    }
+
+    // Get the default probe with all enabled formats
+    let probe = symphonia::default::get_probe();
+
+    // Probe the format
+    let probed = probe.format(
+        &hint,
+        mss,
+        &FormatOptions::default(),
+        &MetadataOptions::default()
+    )?;
+
+    // Access the format reader
+    let mut format = probed.format;
+    
+    // Print track information
+    for track in format.tracks() {
+        println!("Track {}: {:?}", track.id, track.codec_params.codec);
+    }
+
+    Ok(())
+}
+```
+
+## See Also
+
+- [FormatReader](/api/core/format-reader) - Container demuxing interface
+- [Decoder](/api/core/decoder) - Audio decoding interface
+- [Core Overview](/api/core/overview) - Core API overview

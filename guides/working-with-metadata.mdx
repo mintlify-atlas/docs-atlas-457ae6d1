@@ -1,0 +1,455 @@
+---
+title: Working with Metadata
+description: Read and manage audio metadata including tags, visuals, and vendor data
+icon: tags
+---
+
+Symphonia provides comprehensive support for reading metadata from audio files, including tags, album art, and format-specific vendor data.
+
+## Overview
+
+Metadata in Symphonia can come from two sources:
+
+1. **Probed metadata** - Read before the container (e.g., ID3v2 tags in MP3 files)
+2. **Container metadata** - Embedded within the container format itself
+
+Metadata is organized into **revisions** that represent updates over time.
+
+## Reading Metadata During Probing
+
+Metadata encountered before the container format is returned by the probe operation.
+
+<Steps>
+  <Step title="Probe the media source">
+    ```rust
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
+
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let hint = Hint::new();
+    let meta_opts: MetadataOptions = Default::default();
+    let fmt_opts: FormatOptions = Default::default();
+
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &fmt_opts, &meta_opts)?;
+    ```
+  </Step>
+
+  <Step title="Access probed metadata">
+    ```rust
+    // Get probed metadata (before container)
+    let mut probed_metadata = probed.metadata;
+
+    if let Some(mut metadata) = probed_metadata.get() {
+        if let Some(rev) = metadata.current() {
+            // Iterate over tags
+            for tag in rev.tags() {
+                println!("{}={}", tag.key, tag.value);
+            }
+
+            // Access album art
+            for visual in rev.visuals() {
+                println!("Found visual: {} bytes", visual.data.len());
+            }
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Get format reader metadata">
+    ```rust
+    // Get metadata from the container itself
+    let mut format = probed.format;
+    let mut container_metadata = format.metadata();
+
+    if let Some(rev) = container_metadata.current() {
+        // Process container metadata
+        for tag in rev.tags() {
+            println!("Container tag: {}={}", tag.key, tag.value);
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  Probed metadata typically contains format-agnostic tags (like ID3v2), while container metadata contains format-specific information.
+</Tip>
+
+## Understanding Metadata Revisions
+
+Metadata can be updated during playback. Symphonia maintains a queue of revisions.
+
+### Revision Queue
+
+The metadata queue works like this:
+
+```rust
+use symphonia::core::meta::MetadataRevision;
+
+// Check if there are newer revisions
+while !format.metadata().is_latest() {
+    // Pop the old revision
+    let old_rev: Option<MetadataRevision> = format.metadata().pop();
+    
+    // The current revision is now the next one
+    if let Some(current) = format.metadata().current() {
+        // Process updated metadata
+    }
+}
+```
+
+### Revision Semantics
+
+Metadata revisions should be treated as **upserts** (update or insert):
+
+```rust
+// Example: Merging revisions
+use std::collections::HashMap;
+use symphonia::core::meta::{StandardTagKey, Tag};
+
+let mut tags: HashMap<StandardTagKey, String> = HashMap::new();
+
+// Process initial revision
+if let Some(rev) = format.metadata().current() {
+    for tag in rev.tags() {
+        if let Some(std_key) = tag.std_key {
+            tags.insert(std_key, tag.value.to_string());
+        }
+    }
+}
+
+// Update with new revisions
+while !format.metadata().is_latest() {
+    format.metadata().pop();
+    
+    if let Some(rev) = format.metadata().current() {
+        for tag in rev.tags() {
+            if let Some(std_key) = tag.std_key {
+                // Update or insert
+                tags.insert(std_key, tag.value.to_string());
+            }
+        }
+    }
+}
+```
+
+<Warning>
+  Only discard all previous metadata when `Error::ResetRequired` is returned, as this indicates a complete stream change.
+</Warning>
+
+## Working with Tags
+
+Tags are key-value pairs of metadata.
+
+### Standard Tag Keys
+
+Symphonia maps common tag names to `StandardTagKey` enum values:
+
+```rust
+use symphonia::core::meta::{StandardTagKey, Tag};
+
+for tag in rev.tags() {
+    if let Some(std_key) = tag.std_key {
+        match std_key {
+            StandardTagKey::TrackTitle => {
+                println!("Title: {}", tag.value);
+            }
+            StandardTagKey::Artist => {
+                println!("Artist: {}", tag.value);
+            }
+            StandardTagKey::Album => {
+                println!("Album: {}", tag.value);
+            }
+            StandardTagKey::Date => {
+                println!("Year: {}", tag.value);
+            }
+            _ => {
+                // Other standard keys
+            }
+        }
+    } else {
+        // Non-standard tag
+        println!("Custom tag: {}={}", tag.key, tag.value);
+    }
+}
+```
+
+### Common Standard Keys
+
+<AccordionGroup>
+  <Accordion title="Basic Track Info">
+    - `TrackTitle` - Song title
+    - `TrackNumber` - Track number
+    - `TrackTotal` - Total tracks
+    - `TrackSubtitle` - Subtitle
+  </Accordion>
+
+  <Accordion title="Artist Info">
+    - `Artist` - Track artist
+    - `AlbumArtist` - Album artist
+    - `Composer` - Composer
+    - `Conductor` - Conductor
+    - `Performer` - Performer
+  </Accordion>
+
+  <Accordion title="Album Info">
+    - `Album` - Album name
+    - `DiscNumber` - Disc number
+    - `DiscTotal` - Total discs
+    - `Date` - Release date
+    - `Genre` - Music genre
+  </Accordion>
+
+  <Accordion title="Technical Info">
+    - `Encoder` - Encoder used
+    - `EncoderSettings` - Encoder settings
+    - `Bpm` - Tempo in BPM
+    - `ReplayGainTrackGain` - ReplayGain
+  </Accordion>
+</AccordionGroup>
+
+### Tag Values
+
+Tag values can have different types:
+
+```rust
+use symphonia::core::meta::Value;
+
+match &tag.value {
+    Value::String(s) => println!("String: {}", s),
+    Value::Binary(data) => println!("Binary: {} bytes", data.len()),
+    Value::Boolean(b) => println!("Boolean: {}", b),
+    Value::SignedInt(i) => println!("Integer: {}", i),
+    Value::UnsignedInt(u) => println!("Unsigned: {}", u),
+    Value::Float(f) => println!("Float: {}", f),
+    Value::Flag => println!("Flag present"),
+}
+```
+
+## Working with Visuals (Album Art)
+
+Visuals represent embedded images like album covers.
+
+### Reading Album Art
+
+```rust
+use symphonia::core::meta::{StandardVisualKey, Visual};
+
+for visual in rev.visuals() {
+    println!("Media type: {}", visual.media_type);
+    
+    // Check visual usage/type
+    if let Some(usage) = visual.usage {
+        match usage {
+            StandardVisualKey::FrontCover => {
+                println!("Front cover art");
+            }
+            StandardVisualKey::BackCover => {
+                println!("Back cover art");
+            }
+            StandardVisualKey::Media => {
+                println!("Media image (e.g., CD)");
+            }
+            _ => {
+                println!("Other visual: {:?}", usage);
+            }
+        }
+    }
+    
+    // Access image dimensions (may not be accurate)
+    if let Some(dims) = visual.dimensions {
+        println!("Dimensions: {}x{}", dims.width, dims.height);
+    }
+    
+    // Access raw image data
+    let image_data: &[u8] = &visual.data;
+    // Save to file, decode, display, etc.
+}
+```
+
+### Visual Metadata
+
+```rust
+use symphonia::core::meta::{ColorMode, Visual};
+
+fn process_visual(visual: &Visual) {
+    println!("Format: {}", visual.media_type);
+    
+    // Bits per pixel (hint only)
+    if let Some(bpp) = visual.bits_per_pixel {
+        println!("Bits per pixel: {}", bpp);
+    }
+    
+    // Color mode
+    if let Some(color_mode) = visual.color_mode {
+        match color_mode {
+            ColorMode::Discrete => {
+                println!("Direct color");
+            }
+            ColorMode::Indexed(num_colors) => {
+                println!("Indexed color, {} colors", num_colors);
+            }
+        }
+    }
+    
+    // Visual can have its own tags
+    for tag in &visual.tags {
+        println!("Visual tag: {}={}", tag.key, tag.value);
+    }
+}
+```
+
+<Warning>
+  Visual dimensions, bit depth, and color mode are hints from metadata and may not match the actual image data. Always validate by decoding the image.
+</Warning>
+
+## Metadata During Playback
+
+Metadata can be updated while decoding. Check regularly in your decode loop:
+
+```rust
+use symphonia::core::errors::Error;
+
+loop {
+    // Get next packet
+    let packet = match format.next_packet() {
+        Ok(packet) => packet,
+        Err(Error::ResetRequired) => {
+            // Complete reset - discard all metadata
+            unimplemented!();
+        }
+        Err(err) => break,
+    };
+    
+    // Check for metadata updates
+    while !format.metadata().is_latest() {
+        // Remove old revision
+        format.metadata().pop();
+        
+        // Process new revision
+        if let Some(rev) = format.metadata().current() {
+            println!("Metadata updated!");
+            
+            // Update UI, etc.
+            for tag in rev.tags() {
+                if let Some(std_key) = tag.std_key {
+                    // Handle updated tags
+                }
+            }
+        }
+    }
+    
+    // Filter and decode packet
+    // ...
+}
+```
+
+## Metadata Formats
+
+Different container formats use different metadata standards:
+
+<CardGroup cols={2}>
+  <Card title="ID3v2" icon="hashtag">
+    Used by MP3 files. Stored before the audio data.
+    - Rich tagging system
+    - Supports embedded images
+    - Multiple versions (2.2, 2.3, 2.4)
+  </Card>
+  
+  <Card title="Vorbis Comments" icon="message">
+    Used by OGG, FLAC, and Opus files.
+    - Simple key=value format
+    - UTF-8 text only
+    - Case-insensitive keys
+  </Card>
+  
+  <Card title="ID3v1" icon="file-lines">
+    Legacy format at end of MP3 files.
+    - Fixed 128-byte structure
+    - Limited to 30-character fields
+    - Rarely used alone
+  </Card>
+  
+  <Card title="iTunes Metadata" icon="music">
+    Used in MP4/M4A containers.
+    - Atoms-based structure
+    - Supports cover art
+    - Rich media metadata
+  </Card>
+</CardGroup>
+
+## Complete Example
+
+```rust
+use std::fs::File;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::{MetadataOptions, StandardTagKey};
+use symphonia::core::probe::Hint;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let file = File::open("audio.mp3")?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    
+    let probed = symphonia::default::get_probe()
+        .format(&Hint::new(), mss, &FormatOptions::default(), &MetadataOptions::default())?;
+    
+    // Read probed metadata (e.g., ID3v2)
+    let mut probed_meta = probed.metadata;
+    if let Some(mut meta) = probed_meta.get() {
+        if let Some(rev) = meta.current() {
+            println!("=== Probed Metadata ===");
+            print_tags(rev.tags());
+            
+            // Extract album art
+            for visual in rev.visuals() {
+                if matches!(visual.usage, Some(symphonia::core::meta::StandardVisualKey::FrontCover)) {
+                    std::fs::write("cover.jpg", &visual.data)?;
+                    println!("Saved cover art");
+                }
+            }
+        }
+    }
+    
+    // Read container metadata
+    let mut format = probed.format;
+    let mut meta = format.metadata();
+    if let Some(rev) = meta.current() {
+        println!("\n=== Container Metadata ===");
+        print_tags(rev.tags());
+    }
+    
+    Ok(())
+}
+
+fn print_tags(tags: &[symphonia::core::meta::Tag]) {
+    for tag in tags {
+        if let Some(std_key) = tag.std_key {
+            let key_name = match std_key {
+                StandardTagKey::TrackTitle => "Title",
+                StandardTagKey::Artist => "Artist",
+                StandardTagKey::Album => "Album",
+                StandardTagKey::Date => "Date",
+                StandardTagKey::Genre => "Genre",
+                _ => "Other",
+            };
+            println!("{}: {}", key_name, tag.value);
+        }
+    }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Decoding Audio" icon="music" href="/guides/decoding-audio">
+    Learn how to decode audio samples
+  </Card>
+  
+  <Card title="Format Detection" icon="magnifying-glass" href="/guides/format-detection">
+    Auto-detect media formats
+  </Card>
+</CardGroup>

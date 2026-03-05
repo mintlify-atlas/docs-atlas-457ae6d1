@@ -1,0 +1,169 @@
+---
+title: WAV Format
+description: Waveform Audio File Format (WAV/WAVE) demuxer
+---
+
+The WAV demuxer provides support for the Waveform Audio File Format, one of the most common uncompressed audio formats based on the RIFF container.
+
+## Feature Flag
+
+```toml
+[dependencies]
+symphonia = { version = "0.5", features = ["wav"] }
+```
+
+**Note:** WAV is enabled by default in Symphonia.
+
+## Status
+
+**Excellent** - All media streams play. No audible or inaudible glitches. All required features are supported.
+
+## Supported Codecs
+
+The WAV container supports various audio codecs:
+
+- **PCM** (8, 16, 24, 32-bit integer)
+- **IEEE Float** (32, 64-bit)
+- **ADPCM** (Microsoft, IMA)
+- **A-law / μ-law**
+- **Extensible format** (multi-channel PCM)
+
+## Gapless Playback
+
+✅ **Fully supported** - WAV files support gapless playback with sample-accurate seeking.
+
+## Metadata Support
+
+WAV files support **RIFF INFO** metadata chunks:
+
+- IART (Artist)
+- INAM (Title)
+- IPRD (Album)
+- ICRD (Creation date)
+- IGNR (Genre)
+- ICMT (Comment)
+- ICOP (Copyright)
+- And many more INFO tags
+
+Additionally, WAV files can contain embedded ID3v2 tags.
+
+## Usage Example
+
+```rust
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Open the WAV file
+    let file = Box::new(File::open("audio.wav")?);
+    let mss = MediaSourceStream::new(file, Default::default());
+
+    // Create a hint
+    let mut hint = Hint::new();
+    hint.with_extension("wav");
+
+    // Probe the media source
+    let format_opts = FormatOptions::default();
+    let metadata_opts = MetadataOptions::default();
+    
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &format_opts, &metadata_opts)?;
+
+    let mut format = probed.format;
+
+    // Get the default track
+    let track = format.default_track().unwrap();
+    
+    println!("Codec: {:?}", track.codec_params.codec);
+    println!("Sample Rate: {:?}", track.codec_params.sample_rate);
+    println!("Channels: {:?}", track.codec_params.channels);
+    println!("Bits per Sample: {:?}", track.codec_params.bits_per_sample);
+
+    // Get total duration
+    if let Some(n_frames) = track.codec_params.n_frames {
+        if let Some(sample_rate) = track.codec_params.sample_rate {
+            let duration_secs = n_frames as f64 / sample_rate as f64;
+            println!("Duration: {:.2} seconds", duration_secs);
+        }
+    }
+
+    // Read RIFF INFO metadata
+    if let Some(metadata) = probed.metadata.get() {
+        for tag in metadata.tags() {
+            println!("{}: {}", tag.key, tag.value);
+        }
+    }
+
+    Ok(())
+}
+```
+
+## Advanced Features
+
+### Seeking in WAV Files
+
+WAV files support sample-accurate seeking:
+
+```rust
+use symphonia::core::formats::SeekMode;
+use symphonia::core::formats::SeekTo;
+
+// Seek to 5 seconds
+let target_sample = 5 * track.codec_params.sample_rate.unwrap();
+format.seek(
+    SeekMode::Accurate,
+    SeekTo::TimeStamp { ts: target_sample as u64, track_id: track.id }
+)?;
+```
+
+### Working with Multi-Channel Audio
+
+WAV extensible format supports multi-channel configurations:
+
+```rust
+if let Some(channels) = &track.codec_params.channels {
+    println!("Channel count: {}", channels.count());
+    println!("Channel layout: {:?}", channels);
+}
+```
+
+### Cue Points
+
+WAV files can contain cue points for markers and regions:
+
+```rust
+for cue in format.cues() {
+    println!("Cue point at sample {}", cue.index);
+}
+```
+
+## Known Limitations
+
+- Some proprietary or rare WAV codec variants may not be supported
+- RF64 format (for files >4GB) has limited support
+- Broadcast Wave Format (BWF) metadata is partially supported
+
+## File Extensions
+
+- `.wav` - Standard extension
+- `.wave` - Alternative extension
+
+## MIME Types
+
+- `audio/vnd.wave`
+- `audio/x-wav`
+- `audio/wav`
+- `audio/wave`
+
+## Crate Information
+
+**Crate:** [`symphonia-format-riff`](https://docs.rs/symphonia-format-riff)
+
+**Version:** 0.5.5
+
+**License:** MPL-2.0
+
+**Safety:** 100% safe Rust (forbids unsafe code)

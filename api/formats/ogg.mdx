@@ -1,0 +1,136 @@
+---
+title: OGG Format
+description: OGG container format demuxer for Vorbis, Opus, and FLAC
+---
+
+The OGG format demuxer provides support for the OGG container format, commonly used for Vorbis, Opus, and FLAC audio streams.
+
+## Feature Flag
+
+```toml
+[dependencies]
+symphonia = { version = "0.5", features = ["ogg"] }
+```
+
+**Note:** OGG is enabled by default in Symphonia.
+
+## Status
+
+**Great** - Most media streams play. Inaudible glitches may be present. Most common features are supported.
+
+## Supported Codecs
+
+The OGG container supports the following audio codecs:
+
+- **Vorbis** (Excellent support)
+- **Opus** (Planned support)
+- **FLAC** (Excellent support)
+- **Speex** (Planned support)
+
+## Gapless Playback
+
+✅ **Fully supported** - The OGG demuxer supports gapless playback when used with compatible codecs.
+
+## Metadata Support
+
+OGG files use **Vorbis Comments** for metadata:
+
+- Standard tags (artist, album, title, date)
+- Custom user-defined tags
+- Album artwork (via METADATA_BLOCK_PICTURE)
+- ReplayGain information
+- MusicBrainz identifiers
+
+See the [Vorbis Comment](/api/metadata/vorbis-comment) documentation for complete tag reference.
+
+## Usage Example
+
+```rust
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Open the OGG file
+    let file = Box::new(File::open("audio.ogg")?);
+    let mss = MediaSourceStream::new(file, Default::default());
+
+    // Create a hint
+    let mut hint = Hint::new();
+    hint.with_extension("ogg");
+
+    // Probe the media source
+    let format_opts = FormatOptions::default();
+    let metadata_opts = MetadataOptions::default();
+    
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &format_opts, &metadata_opts)?;
+
+    let mut format = probed.format;
+
+    // Get the default track (usually the first audio track)
+    let track = format.default_track().unwrap();
+    
+    println!("Codec: {:?}", track.codec_params.codec);
+    println!("Sample Rate: {:?}", track.codec_params.sample_rate);
+    println!("Channels: {:?}", track.codec_params.channels);
+
+    // Read Vorbis Comments
+    if let Some(metadata) = probed.metadata.get() {
+        for tag in metadata.tags() {
+            println!("{}: {}", tag.key, tag.value);
+        }
+
+        // Check for embedded album art
+        for visual in metadata.visuals() {
+            println!("Found album art: {} bytes", visual.data.len());
+        }
+    }
+
+    // Decode packets
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(_) => break,
+        };
+
+        // Process packet...
+    }
+
+    Ok(())
+}
+```
+
+## Advanced Features
+
+### Multi-Stream OGG Files
+
+OGG files can contain multiple logical streams. Use the track API to enumerate and select streams:
+
+```rust
+for track in format.tracks() {
+    println!("Track {}: {:?}", track.id, track.codec_params.codec);
+}
+```
+
+### Chained OGG Streams
+
+OGG supports chaining multiple independent streams sequentially in a single file. Symphonia handles this automatically.
+
+## Known Limitations
+
+- Skeleton metadata streams are not currently parsed
+- Some rare OGG variants may not be supported
+- Video streams in OGG (Theora) are not supported
+
+## Crate Information
+
+**Crate:** [`symphonia-format-ogg`](https://docs.rs/symphonia-format-ogg)
+
+**Version:** 0.5.5
+
+**License:** MPL-2.0
+
+**Safety:** 100% safe Rust (forbids unsafe code)

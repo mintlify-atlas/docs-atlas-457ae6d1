@@ -1,0 +1,301 @@
+---
+title: Vorbis Comment
+description: Vorbis Comment metadata tag reader for OGG and FLAC
+---
+
+Vorbis Comment is a metadata format used in OGG Vorbis, OGG Opus, OGG FLAC, and native FLAC files. It provides a simple key-value tagging system with UTF-8 text support.
+
+## Supported Formats
+
+Vorbis Comments are found in:
+
+- **OGG Vorbis** - Primary format (Perfect support)
+- **OGG Opus** - Opus audio in OGG (Perfect support)
+- **OGG FLAC** - FLAC audio in OGG (Perfect support)
+- **FLAC** - Native FLAC files (Perfect support)
+
+## Status
+
+**Perfect** - Full specification compliance with comprehensive tag support.
+
+## Tag Structure
+
+Vorbis Comments use a simple `KEY=VALUE` format:
+
+- Keys are case-insensitive ASCII
+- Values are UTF-8 encoded text
+- Multiple values for the same key are allowed
+- No length restrictions (practical limits apply)
+- Includes vendor string identifying the encoder
+
+## Standard Tag Fields
+
+Symphonia maps common Vorbis Comment fields to standard keys:
+
+### Basic Information
+
+- `TITLE` → TrackTitle
+- `ARTIST` → Artist
+- `ALBUM` → Album
+- `ALBUMARTIST` → AlbumArtist
+- `DATE` → Date
+- `ORIGINALDATE` → OriginalDate
+- `TRACKNUMBER` → TrackNumber
+- `TRACKTOTAL` / `TOTALTRACKS` → TrackTotal
+- `DISCNUMBER` → DiscNumber
+- `DISCTOTAL` / `TOTALDISCS` → DiscTotal
+- `GENRE` → Genre
+
+### Credits and Contributors
+
+- `COMPOSER` → Composer
+- `CONDUCTOR` → Conductor
+- `PERFORMER` → Performer
+- `LYRICIST` → Lyricist
+- `WRITER` / `AUTHOR` → Writer
+- `ARRANGER` → Arranger
+- `ENGINEER` → Engineer
+- `PRODUCER` → Producer
+- `DJMIXER` → MixDj
+- `MIXER` → MixEngineer
+- `REMIXER` → Remixer
+- `ENSEMBLE` → Ensemble
+
+### Additional Metadata
+
+- `COMMENT` → Comment
+- `DESCRIPTION` → Description
+- `COPYRIGHT` → Copyright
+- `LICENSE` → License
+- `LABEL` / `ORGANIZATION` / `PUBLISHER` → Label
+- `BPM` → Bpm
+- `ISRC` → IdentIsrc
+- `BARCODE` / `EAN/UPN` / `UPC` → IdentBarcode
+- `CATALOGNUMBER` / `CATALOG` → IdentCatalogNumber
+- `LANGUAGE` → Language
+- `OPUS` → Opus (work number)
+- `PART` → Part
+- `VERSION` → Version
+- `MOOD` → Mood
+
+### Sorting Tags
+
+- `TITLESORT` → SortTrackTitle
+- `ARTISTSORT` → SortArtist
+- `ALBUMSORT` → SortAlbum
+- `ALBUMARTISTSORT` → SortAlbumArtist
+
+### MusicBrainz Identifiers
+
+- `MUSICBRAINZ_ARTISTID` → MusicBrainzArtistId
+- `MUSICBRAINZ_ALBUMID` → MusicBrainzAlbumId
+- `MUSICBRAINZ_ALBUMARTISTID` → MusicBrainzAlbumArtistId
+- `MUSICBRAINZ_TRACKID` → MusicBrainzTrackId
+- `MUSICBRAINZ_RELEASETRACKID` → MusicBrainzReleaseTrackId
+- `MUSICBRAINZ_RELEASEGROUPID` → MusicBrainzReleaseGroupId
+- `MUSICBRAINZ_WORKID` → MusicBrainzWorkId
+- `MUSICBRAINZ_RECORDINGID` → MusicBrainzRecordingId
+- `MUSICBRAINZ_DISCID` → MusicBrainzDiscId
+
+### ReplayGain
+
+- `REPLAYGAIN_TRACK_GAIN` → ReplayGainTrackGain
+- `REPLAYGAIN_TRACK_PEAK` → ReplayGainTrackPeak
+- `REPLAYGAIN_ALBUM_GAIN` → ReplayGainAlbumGain
+- `REPLAYGAIN_ALBUM_PEAK` → ReplayGainAlbumPeak
+
+## Album Artwork
+
+Vorbis Comments support embedded images via Base64-encoded FLAC picture blocks:
+
+- Uses `METADATA_BLOCK_PICTURE` field
+- Contains FLAC PICTURE metadata block encoded in Base64
+- Supports multiple images with different types
+- Common types: front cover, back cover, artist photo
+
+## Reading Vorbis Comments
+
+### Basic Tag Reading
+
+```rust
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let file = Box::new(File::open("song.ogg")?);
+    let mss = MediaSourceStream::new(file, Default::default());
+
+    let mut hint = Hint::new();
+    hint.with_extension("ogg");
+
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())?;
+
+    // Read Vorbis Comments
+    if let Some(metadata) = probed.metadata.get() {
+        println!("=== Vorbis Comments ===");
+        for tag in metadata.tags() {
+            if let Some(std_key) = tag.std_key {
+                println!("{:?}: {}", std_key, tag.value);
+            } else {
+                // Custom/non-standard tag
+                println!("{}: {}", tag.key, tag.value);
+            }
+        }
+    }
+
+    Ok(())
+}
+```
+
+### Reading Album Artwork
+
+```rust
+use symphonia::core::meta::StandardVisualKey;
+
+if let Some(metadata) = probed.metadata.get() {
+    println!("=== Album Artwork ===");
+    
+    for visual in metadata.visuals() {
+        println!("Media Type: {}", visual.media_type);
+        println!("Size: {} bytes", visual.data.len());
+        
+        if let Some(usage) = visual.usage {
+            println!("Usage: {:?}", usage);
+        }
+        
+        // Dimensions if available
+        if let Some(dimensions) = visual.dimensions {
+            println!("Dimensions: {}x{}", dimensions.width, dimensions.height);
+        }
+
+        // Save front cover
+        if visual.usage == Some(StandardVisualKey::FrontCover) {
+            let ext = match visual.media_type.as_str() {
+                "image/jpeg" => "jpg",
+                "image/png" => "png",
+                _ => "img",
+            };
+            std::fs::write(format!("cover.{}", ext), &visual.data)?;
+        }
+    }
+}
+```
+
+### Reading Multiple Values
+
+Vorbis Comments allow multiple values for the same field:
+
+```rust
+use symphonia::core::meta::StandardTagKey;
+
+if let Some(metadata) = probed.metadata.get() {
+    // Get all artist tags (could be multiple performers)
+    let artists: Vec<_> = metadata.tags()
+        .iter()
+        .filter(|tag| tag.std_key == Some(StandardTagKey::Artist))
+        .map(|tag| tag.value.to_string())
+        .collect();
+
+    println!("Artists: {}", artists.join(", "));
+}
+```
+
+### Custom Tags
+
+```rust
+if let Some(metadata) = probed.metadata.get() {
+    // Find custom/non-standard tags
+    for tag in metadata.tags() {
+        if tag.std_key.is_none() {
+            println!("Custom tag {}: {}", tag.key, tag.value);
+        }
+    }
+}
+```
+
+## Handling Tag Updates
+
+In streaming scenarios, Vorbis Comments can be updated mid-stream (e.g., for internet radio):
+
+```rust
+// Check for metadata updates while decoding
+loop {
+    let packet = match format.next_packet() {
+        Ok(packet) => packet,
+        Err(_) => break,
+    };
+
+    // Check if new metadata arrived
+    if let Some(rev) = format.metadata().current() {
+        println!("Metadata updated!");
+        for tag in rev.tags() {
+            println!("{}: {}", tag.key, tag.value);
+        }
+    }
+}
+```
+
+## Writing Custom Tools
+
+### Extract All Metadata
+
+```rust
+use symphonia::core::meta::{Tag, Value};
+
+fn print_all_tags(tags: &[Tag]) {
+    for tag in tags {
+        let key = tag.std_key
+            .map(|k| format!("{:?}", k))
+            .unwrap_or_else(|| tag.key.clone());
+        
+        match &tag.value {
+            Value::String(s) => println!("{}: {}", key, s),
+            Value::Binary(b) => println!("{}: <{} bytes>", key, b.len()),
+            Value::UnsignedInt(n) => println!("{}: {}", key, n),
+            Value::SignedInt(n) => println!("{}: {}", key, n),
+            Value::Float(f) => println!("{}: {}", key, f),
+            Value::Boolean(b) => println!("{}: {}", key, b),
+        }
+    }
+}
+```
+
+## Vendor String
+
+Vorbis Comments include a vendor string identifying the encoder:
+
+```rust
+// The vendor string is typically in the first comment
+// It's implementation-specific how this is exposed
+```
+
+## Case Sensitivity
+
+Field names are **case-insensitive** according to the Vorbis Comment specification:
+
+- `ARTIST`, `Artist`, and `artist` are equivalent
+- Symphonia normalizes all comparisons
+
+## Known Limitations
+
+- None - Vorbis Comment support is complete and tested
+- Custom/non-standard tags are preserved but may not map to standard keys
+
+## Crate Information
+
+**Crate:** [`symphonia-metadata`](https://docs.rs/symphonia-metadata)
+
+**Version:** 0.5.5
+
+**License:** MPL-2.0
+
+**Safety:** 100% safe Rust (forbids unsafe code)
+
+## See Also
+
+- [ID3 Tags](/api/metadata/id3) - Metadata format for MP3 and other formats
+- [OGG Format](/api/formats/ogg) - Container format using Vorbis Comments

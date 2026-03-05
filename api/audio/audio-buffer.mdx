@@ -1,0 +1,368 @@
+---
+title: AudioBuffer
+description: Multi-channel planar audio sample container
+---
+
+`AudioBuffer<S>` is a container for multi-channel planar audio sample data characterized by duration (capacity), sample format, and signal specification.
+
+## Overview
+
+AudioBuffer stores audio samples in a planar layout where each channel's samples are stored contiguously in memory. This layout is optimal for many DSP operations and codec decoding.
+
+## Type Parameters
+
+<ParamField path="S" type="Sample">
+  The sample format type. Common formats include:
+  - `u8`, `u16`, `u24`, `u32` - Unsigned integer samples
+  - `i8`, `i16`, `i24`, `i32` - Signed integer samples
+  - `f32`, `f64` - Floating-point samples
+</ParamField>
+
+## Creating AudioBuffers
+
+### `new`
+
+```rust
+pub fn new(duration: Duration, spec: SignalSpec) -> Self
+```
+
+Instantiates a new AudioBuffer with the specified signal specification and duration.
+
+<ParamField path="duration" type="Duration" required>
+  Maximum number of frames (samples per channel) the buffer can store
+</ParamField>
+
+<ParamField path="spec" type="SignalSpec" required>
+  Signal specification containing sample rate and channel configuration
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::audio::{AudioBuffer, SignalSpec, Layout};
+
+let spec = SignalSpec::new_with_layout(48000, Layout::Stereo);
+let mut buffer = AudioBuffer::<f32>::new(4096, spec);
+```
+
+### `unused`
+
+```rust
+pub fn unused() -> Self
+```
+
+Creates an unused AudioBuffer that allocates no memory. Useful as a placeholder.
+
+## Accessing Buffer Properties
+
+### `spec`
+
+```rust
+pub fn spec(&self) -> &SignalSpec
+```
+
+Returns the signal specification for the buffer.
+
+### `capacity`
+
+```rust
+pub fn capacity(&self) -> usize
+```
+
+Returns the maximum number of frames the buffer can store.
+
+### `frames`
+
+```rust
+pub fn frames(&self) -> usize
+```
+
+Returns the number of frames currently written to the buffer.
+
+### `is_unused`
+
+```rust
+pub fn is_unused(&self) -> bool
+```
+
+Returns `true` if the buffer is unused (zero capacity).
+
+## Accessing Audio Data
+
+### `chan`
+
+```rust
+pub fn chan(&self, channel: usize) -> &[S]
+```
+
+Gets an immutable slice to all written samples in the specified channel.
+
+<ParamField path="channel" type="usize" required>
+  Zero-based channel index
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::audio::Signal;
+
+// Read samples from the left channel
+for &sample in buffer.chan(0) {
+    println!("Sample: {}", sample);
+}
+```
+
+### `chan_mut`
+
+```rust
+pub fn chan_mut(&mut self, channel: usize) -> &mut [S]
+```
+
+Gets a mutable slice to all written samples in the specified channel.
+
+### `chan_pair_mut`
+
+```rust
+pub fn chan_pair_mut(&mut self, first: usize, second: usize) -> (&mut [S], &mut [S])
+```
+
+Gets mutable references to two different channels simultaneously. Useful for stereo processing.
+
+**Example:**
+
+```rust
+// Swap left and right channels
+let (left, right) = buffer.chan_pair_mut(0, 1);
+for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+    std::mem::swap(l, r);
+}
+```
+
+### `planes`
+
+```rust
+pub fn planes(&self) -> AudioPlanes<'_, S>
+```
+
+Gets immutable references to all audio planes (channels) within the buffer.
+
+<Warning>
+This is not a cheap operation for buffers with > 8 channels. Prefer using `chan()` to selectively access individual planes when possible.
+</Warning>
+
+**Example:**
+
+```rust
+let planes = buffer.planes();
+for plane in planes.planes() {
+    // Process each channel
+    for &sample in plane {
+        // ...
+    }
+}
+```
+
+### `planes_mut`
+
+```rust
+pub fn planes_mut(&mut self) -> AudioPlanesMut<'_, S>
+```
+
+Gets mutable references to all audio planes within the buffer.
+
+## Sample Format Conversion
+
+### `convert`
+
+```rust
+pub fn convert<T: Sample>(&self, dest: &mut AudioBuffer<T>)
+where
+    S: IntoSample<T>
+```
+
+Converts the buffer contents into a destination AudioBuffer of a different sample format.
+
+<ParamField path="dest" type="&mut AudioBuffer<T>" required>
+  Destination buffer. Must have capacity >= source capacity and matching signal spec.
+</ParamField>
+
+**Example:**
+
+```rust
+let mut i16_buffer = AudioBuffer::<i16>::new(4096, spec);
+let mut f32_buffer = AudioBuffer::<f32>::new(4096, spec);
+
+// Decode into i16_buffer...
+
+// Convert to f32 for processing
+i16_buffer.convert(&mut f32_buffer);
+```
+
+### `make_equivalent`
+
+```rust
+pub fn make_equivalent<E: Sample>(&self) -> AudioBuffer<E>
+```
+
+Creates a new AudioBuffer of a different sample type with the same capacity and specification.
+
+## AudioBufferRef
+
+`AudioBufferRef` is a copy-on-write reference to an AudioBuffer of any sample format. Decoders return `AudioBufferRef` since the sample format isn't known at compile time.
+
+```rust
+pub enum AudioBufferRef<'a> {
+    U8(Cow<'a, AudioBuffer<u8>>),
+    U16(Cow<'a, AudioBuffer<u16>>),
+    U24(Cow<'a, AudioBuffer<u24>>),
+    U32(Cow<'a, AudioBuffer<u32>>),
+    S8(Cow<'a, AudioBuffer<i8>>),
+    S16(Cow<'a, AudioBuffer<i16>>),
+    S24(Cow<'a, AudioBuffer<i24>>),
+    S32(Cow<'a, AudioBuffer<i32>>),
+    F32(Cow<'a, AudioBuffer<f32>>),
+    F64(Cow<'a, AudioBuffer<f64>>),
+}
+```
+
+### Working with AudioBufferRef
+
+```rust
+use symphonia::core::audio::{AudioBufferRef, Signal};
+
+let decoded: AudioBufferRef = decoder.decode(&packet)?;
+
+match decoded {
+    AudioBufferRef::F32(buf) => {
+        for &sample in buf.chan(0) {
+            // Process f32 samples
+        }
+    }
+    AudioBufferRef::S16(buf) => {
+        for &sample in buf.chan(0) {
+            // Process i16 samples
+        }
+    }
+    _ => {
+        // Handle other formats
+    }
+}
+```
+
+### AudioBufferRef Methods
+
+<ResponseField name="spec" type="&SignalSpec">
+  Returns the signal specification
+</ResponseField>
+
+<ResponseField name="capacity" type="usize">
+  Returns the buffer capacity in frames
+</ResponseField>
+
+<ResponseField name="frames" type="usize">
+  Returns the number of written frames
+</ResponseField>
+
+<ResponseField name="convert" type="fn(&mut AudioBuffer<T>)">
+  Converts to a typed AudioBuffer
+</ResponseField>
+
+## Signal Trait
+
+AudioBuffer implements the `Signal` trait for rendering and transforming audio data.
+
+### `render`
+
+```rust
+pub fn render<'a, F>(&'a mut self, n_frames: Option<usize>, render: F) -> Result<()>
+where
+    F: FnMut(&mut AudioPlanesMut<'a, S>, usize) -> Result<()>
+```
+
+Renders audio frames using the provided render function.
+
+<ParamField path="n_frames" type="Option<usize>">
+  Number of frames to render. If `None`, renders remaining capacity.
+</ParamField>
+
+<ParamField path="render" type="FnMut">
+  Function called for each frame. Receives mutable plane references and frame index.
+</ParamField>
+
+### `render_silence`
+
+```rust
+pub fn render_silence(&mut self, n_frames: Option<usize>)
+```
+
+Renders silent frames (mid-point value for the sample format).
+
+### `render_reserved`
+
+```rust
+pub fn render_reserved(&mut self, n_frames: Option<usize>)
+```
+
+Reserves frames without modifying underlying data. Advances the frame counter.
+
+### `clear`
+
+```rust
+pub fn clear(&mut self)
+```
+
+Clears all written frames. This is a cheap operation that only resets the frame counter.
+
+### `transform`
+
+```rust
+pub fn transform<F>(&mut self, f: F)
+where
+    F: Fn(S) -> S
+```
+
+Applies a transformation function to every written sample.
+
+**Example:**
+
+```rust
+// Apply 0.5x gain to all samples
+buffer.transform(|s| s * 0.5);
+```
+
+### `truncate`
+
+```rust
+pub fn truncate(&mut self, n_frames: usize)
+```
+
+Truncates the buffer to the specified number of frames.
+
+### `shift`
+
+```rust
+pub fn shift(&mut self, shift: usize)
+```
+
+Shifts buffer contents backward, dropping the leading frames.
+
+### `trim`
+
+```rust
+pub fn trim(&mut self, start: usize, end: usize)
+```
+
+Trims frames from the start and end of the buffer.
+
+<ParamField path="start" type="usize" required>
+  Number of frames to trim from the start
+</ParamField>
+
+<ParamField path="end" type="usize" required>
+  Number of frames to trim from the end
+</ParamField>
+
+## See Also
+
+- [SampleBuffer](/api/audio/sample-buffer) - Sample-oriented interleaved buffer
+- [SignalSpec](/api/audio/signal-specs) - Signal specifications and channel layouts

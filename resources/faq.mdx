@@ -1,0 +1,636 @@
+---
+title: Frequently Asked Questions
+description: Common questions and answers about Symphonia
+---
+
+Find answers to common questions about using Symphonia for audio decoding and media demuxing.
+
+## General Questions
+
+<AccordionGroup>
+  <Accordion title="What is Symphonia?">
+    Symphonia is a pure Rust audio decoding and media demuxing library. It provides support for popular audio codecs (AAC, FLAC, MP3, Vorbis, etc.) and container formats (MP4, OGG, MKV, WAV, etc.) without requiring any C dependencies.
+
+    Key features:
+    - 100% safe Rust
+    - No unsafe code
+    - Minimal dependencies
+    - Fast performance comparable to FFmpeg
+    - Gapless playback support
+    - Comprehensive format and codec support
+  </Accordion>
+
+  <Accordion title="Why choose Symphonia over FFmpeg or other libraries?">
+    **Advantages of Symphonia:**
+
+    - **Pure Rust**: No C dependencies, easier integration, better safety guarantees
+    - **Memory Safety**: No segfaults or buffer overflows due to Rust's ownership system
+    - **Performance**: Competitive with or faster than FFmpeg for many codecs
+    - **Minimal Dependencies**: Smaller binary size and easier deployment
+    - **WASM Ready**: Can be compiled to WebAssembly (planned feature)
+    - **Easy Integration**: Native Cargo support, no build scripts for C libraries
+
+    **When to use FFmpeg instead:**
+
+    - Need video decoding (Symphonia is audio-only)
+    - Need encoding support (Symphonia only decodes)
+    - Require codecs not yet supported by Symphonia
+    - Need extensive format support beyond what Symphonia offers
+  </Accordion>
+
+  <Accordion title="Is Symphonia stable and production-ready?">
+    Yes! Symphonia is mature and used in production applications. The library has:
+
+    - Excellent test coverage
+    - Comprehensive fuzzing to prevent crashes
+    - Several codecs with "Excellent" status (FLAC, MP3, Vorbis, PCM, Wave)
+    - Active maintenance and bug fixes
+    - Clear semantic versioning
+
+    However, always test with your specific content and use cases. Some codecs are still in development (marked with "-" status).
+  </Accordion>
+
+  <Accordion title="What does 'pure Rust' mean?">
+    "Pure Rust" means Symphonia is written entirely in Rust with no C or C++ dependencies. All decoders and demuxers are implemented from scratch in safe Rust code.
+
+    Benefits:
+    - No need to link against C libraries
+    - No FFI (Foreign Function Interface) overhead
+    - Cross-compilation is easier
+    - Better security through memory safety
+    - Simpler build process
+  </Accordion>
+
+  <Accordion title="What license is Symphonia released under?">
+    Symphonia is licensed under the **MPL v2.0** (Mozilla Public License version 2.0).
+
+    This license:
+    - Allows commercial use
+    - Allows modification
+    - Allows distribution
+    - Requires source disclosure of modifications to Symphonia files
+    - Allows linking with proprietary code
+    - Is compatible with GPL and many other licenses
+
+    See the [LICENSE](https://github.com/pdeljanov/Symphonia/blob/master/LICENSE) file for full details.
+  </Accordion>
+</AccordionGroup>
+
+## Usage Questions
+
+<AccordionGroup>
+  <Accordion title="How do I get started with Symphonia?">
+    1. Add Symphonia to your `Cargo.toml`:
+
+    ```toml
+    [dependencies]
+    symphonia = { version = "0.5", features = ["all"] }
+    ```
+
+    2. Follow the basic decoding pattern:
+
+    ```rust
+    use symphonia::core::codecs::DecoderOptions;
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
+    use std::fs::File;
+
+    let file = Box::new(File::open("audio.mp3")?);
+    let mss = MediaSourceStream::new(file, Default::default());
+    let mut hint = Hint::new();
+    hint.with_extension("mp3");
+
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())?;
+
+    let mut format = probed.format;
+    let track = format.default_track()?;
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())?;
+    ```
+
+    See the [Examples](/resources/examples) page for complete code.
+  </Accordion>
+
+  <Accordion title="How do I enable support for specific codecs or formats?">
+    Use feature flags in your `Cargo.toml`:
+
+    ```toml
+    # Enable specific codecs
+    symphonia = { version = "0.5", features = ["mp3", "aac", "flac"] }
+
+    # Enable all codecs
+    symphonia = { version = "0.5", features = ["all-codecs"] }
+
+    # Enable all formats
+    symphonia = { version = "0.5", features = ["all-formats"] }
+
+    # Enable everything
+    symphonia = { version = "0.5", features = ["all"] }
+    ```
+
+    By default, only royalty-free open formats are enabled (FLAC, Vorbis, OGG, WAV, etc.).
+
+    See [Supported Codecs](/resources/supported-codecs) and [Supported Formats](/resources/supported-formats) for complete lists.
+  </Accordion>
+
+  <Accordion title="How do I play decoded audio?">
+    Symphonia only decodes audio—it doesn't handle audio output. Use an audio playback library like:
+
+    - **[CPAL](https://crates.io/crates/cpal)** - Cross-platform audio I/O (recommended)
+    - **[rodio](https://crates.io/crates/rodio)** - Higher-level audio playback (uses CPAL internally)
+    - **SDL2** - Multimedia library with audio support
+
+    Example with CPAL:
+
+    ```rust
+    use symphonia::core::audio::SampleBuffer;
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+    // Decode audio with Symphonia
+    let decoded = decoder.decode(&packet)?;
+
+    // Convert to interleaved samples
+    let mut sample_buf = SampleBuffer::<f32>::new(
+        decoded.capacity() as u64,
+        *decoded.spec()
+    );
+    sample_buf.copy_interleaved_ref(decoded);
+
+    // Send to CPAL audio output
+    // (See CPAL documentation for stream setup)
+    ```
+
+    The [symphonia-play](https://github.com/pdeljanov/Symphonia/tree/master/symphonia-play) tool demonstrates complete audio output integration.
+  </Accordion>
+
+  <Accordion title="Does Symphonia support seeking?">
+    Yes! Most formats support seeking:
+
+    ```rust
+    use symphonia::core::formats::{SeekMode, SeekTo};
+    use symphonia::core::units::Time;
+
+    // Seek to 30 seconds
+    let seek_to = SeekTo::Time {
+        time: Time::from(30.0),
+        track_id: Some(track_id),
+    };
+    format.seek(SeekMode::Accurate, seek_to)?;
+    ```
+
+    Two seek modes are available:
+    - `SeekMode::Accurate` - Seeks to exact position (may be slower)
+    - `SeekMode::Coarse` - Seeks close to position (faster)
+
+    Not all formats support accurate seeking equally well. Check format-specific documentation.
+  </Accordion>
+
+  <Accordion title="How do I read metadata and tags?">
+    Access metadata through the format reader:
+
+    ```rust
+    // Get current metadata revision
+    if let Some(metadata_rev) = format.metadata().current() {
+        // Iterate over all tags
+        for tag in metadata_rev.tags() {
+            println!("{}: {}", tag.std_key.map(|k| k.to_string()).unwrap_or_else(|| tag.key.clone()), tag.value);
+        }
+
+        // Get visual (cover art)
+        for visual in metadata_rev.visuals() {
+            println!("Found cover art: {} ({})", visual.media_type, visual.data.len());
+        }
+    }
+
+    // Check for updated metadata during decoding
+    while !format.metadata().is_latest() {
+        format.metadata().pop();
+        // Process new metadata
+    }
+    ```
+
+    Supported tag formats: ID3v1, ID3v2, Vorbis Comments, MP4 metadata, RIFF INFO.
+  </Accordion>
+
+  <Accordion title="Can I use Symphonia with async/await?">
+    Yes, but with some considerations:
+
+    - Symphonia's core API is synchronous
+    - You can wrap file I/O in async tasks
+    - Decoding itself is CPU-bound, not I/O-bound
+
+    Example pattern:
+
+    ```rust
+    use tokio::task;
+
+    let decoded_samples = task::spawn_blocking(move || {
+        // Perform decoding in blocking task
+        decoder.decode(&packet)
+    }).await??;
+    ```
+
+    For streaming audio from network sources, implement a custom `MediaSource` that bridges async I/O to Symphonia's synchronous `Read` trait.
+  </Accordion>
+</AccordionGroup>
+
+## Performance Questions
+
+<AccordionGroup>
+  <Accordion title="How does Symphonia's performance compare to FFmpeg?">
+    Symphonia is generally **within ±15%** of FFmpeg's performance, with many codecs performing significantly better:
+
+    **Faster than FFmpeg:**
+    - FLAC: 29-49% faster
+    - MP1/MP2: 40-55% faster
+    - ALAC: 19-27% faster
+    - MP3: Comparable to 19% faster
+
+    **Slower than FFmpeg:**
+    - AAC: 10-27% slower
+    - Vorbis: 5-24% slower (varies by platform)
+
+    Performance varies by platform (x86-64, ARM, Apple Silicon) and compiler version. See the [Performance](/resources/performance) page for detailed benchmarks.
+  </Accordion>
+
+  <Accordion title="How can I optimize Symphonia's performance?">
+    1. **Enable SIMD optimizations:**
+
+    ```toml
+    symphonia = { version = "0.5", features = ["opt-simd"] }
+    ```
+
+    2. **Use target-specific optimizations:**
+
+    ```bash
+    RUSTFLAGS="-C target-cpu=native" cargo build --release
+    ```
+
+    3. **Use the latest Rust compiler:**
+
+    Newer Rust versions often produce faster code through improved optimizations.
+
+    4. **Consider Profile-Guided Optimization (PGO):**
+
+    PGO can provide additional performance improvements for your specific workload.
+
+    See the [Performance](/resources/performance#build-optimizations) page for more details.
+  </Accordion>
+
+  <Accordion title="Does Symphonia support multi-threaded decoding?">
+    Currently, Symphonia decoders are single-threaded. Each decoder instance uses one thread.
+
+    However, you can:
+    - Decode multiple files in parallel using separate decoder instances
+    - Use a thread pool for batch processing
+    - Run decoding in a separate thread from audio output
+
+    Multi-threaded decoding within a single stream is a potential future enhancement.
+  </Accordion>
+
+  <Accordion title="What are SIMD optimizations and should I enable them?">
+    SIMD (Single Instruction, Multiple Data) allows processing multiple data points simultaneously, improving performance.
+
+    Available SIMD features:
+    - `opt-simd-sse` - x86/x86-64 SSE instructions
+    - `opt-simd-avx` - x86-64 AVX instructions
+    - `opt-simd-neon` - ARM Neon instructions
+    - `opt-simd` - All appropriate for target platform
+
+    **Should you enable SIMD?**
+    - **Yes** if performance is critical
+    - **Yes** if you're building for known hardware
+    - **Consider carefully** if building for diverse hardware
+    - **Note**: Adds `rustfft` dependency
+
+    SIMD features are not enabled by default to minimize dependencies.
+  </Accordion>
+</AccordionGroup>
+
+## Platform & Compatibility
+
+<AccordionGroup>
+  <Accordion title="What platforms does Symphonia support?">
+    Symphonia supports all platforms that Rust supports, including:
+
+    - **Desktop**: Windows, macOS, Linux, BSD
+    - **Mobile**: Android, iOS
+    - **Embedded**: ARM Cortex-M, RISC-V (with appropriate allocator)
+    - **Web**: WebAssembly (WASM) - experimental
+
+    Requirements:
+    - Rust 1.53.0 or later
+    - Standard library (no_std support is limited)
+
+    Platform-specific performance varies. See [Performance](/resources/performance) benchmarks.
+  </Accordion>
+
+  <Accordion title="Can I use Symphonia in embedded systems?">
+    Yes, but with considerations:
+
+    **Requirements:**
+    - Sufficient memory for audio buffers
+    - Allocator for dynamic memory (decoder state)
+    - Rust standard library or appropriate alternatives
+
+    **Challenges:**
+    - Some formats (MP3, AAC) require significant memory
+    - Real-time decoding needs sufficient CPU performance
+    - Consider using simpler codecs (ADPCM, PCM) on resource-constrained devices
+
+    **Recommended for embedded:**
+    - ADPCM - Low complexity
+    - PCM - Minimal processing
+    - FLAC - If CPU allows (efficient lossless)
+
+    Test thoroughly on your target hardware.
+  </Accordion>
+
+  <Accordion title="Does Symphonia work with WebAssembly?">
+    WASM support is planned and partially working:
+
+    **Current Status:**
+    - Core library compiles to WASM
+    - Basic decoding works in WASM environments
+    - Official WASM API is planned for future release
+
+    **Current Limitations:**
+    - No official high-level WASM bindings yet
+    - File I/O needs WASM-specific implementations
+    - Performance may vary vs native code
+
+    Community members have successfully used Symphonia in WASM projects. Check GitHub discussions for examples.
+  </Accordion>
+
+  <Accordion title="What's the minimum Rust version required?">
+    Symphonia requires **Rust 1.53.0** or later.
+
+    The MSRV (Minimum Supported Rust Version) is considered a SemVer breaking change. Updates to MSRV will only occur with major version releases.
+
+    We recommend using the latest stable Rust compiler for best performance and latest optimizations.
+  </Accordion>
+</AccordionGroup>
+
+## Feature Support
+
+<AccordionGroup>
+  <Accordion title="Does Symphonia support gapless playback?">
+    Yes! Gapless playback is supported for formats and codecs that implement it:
+
+    **Formats with gapless:**
+    - AIFF
+    - OGG
+    - Wave
+
+    **Codecs with gapless:**
+    - ADPCM
+    - ALAC
+    - FLAC
+    - MP3
+    - PCM
+    - Vorbis
+
+    Gapless playback requires support from **both** the format and codec.
+
+    The decoder automatically handles encoder delay and padding for supported codecs. No additional application code is required.
+  </Accordion>
+
+  <Accordion title="Can Symphonia encode audio?">
+    No, Symphonia is a **decode-only** library. It does not support audio encoding.
+
+    For encoding in Rust:
+    - Use codec-specific crates (e.g., `opus`, `vorbis_encoder`)
+    - Consider FFmpeg bindings if you need comprehensive encoding support
+    - Wait for potential future Symphonia encoding support (not currently planned)
+  </Accordion>
+
+  <Accordion title="Does Symphonia support video?">
+    No, Symphonia is **audio-only**. It does not decode or demux video streams.
+
+    However, Symphonia can:
+    - Skip video streams in containers (MP4, MKV)
+    - Extract audio tracks from video files
+    - Read metadata and cover art
+
+    For video decoding in Rust, consider:
+    - FFmpeg bindings
+    - Native Rust video libraries (limited availability)
+  </Accordion>
+
+  <Accordion title="What sample formats does Symphonia output?">
+    Decoders output audio in their native format, typically:
+
+    - 16-bit signed integer (i16)
+    - 24-bit signed integer (i32)
+    - 32-bit signed integer (i32)
+    - 32-bit floating point (f32)
+    - 64-bit floating point (f64)
+
+    You can convert to any format using `SampleBuffer`:
+
+    ```rust
+    // Convert to f32
+    let mut sample_buf = SampleBuffer::<f32>::new(
+        decoded.capacity() as u64,
+        *decoded.spec()
+    );
+    sample_buf.copy_interleaved_ref(decoded);
+
+    let f32_samples: &[f32] = sample_buf.samples();
+    ```
+
+    Supported conversions: i8, u8, i16, u16, i32, u32, f32, f64.
+  </Accordion>
+
+  <Accordion title="Can I decode audio from memory instead of files?">
+    Yes! Use `Cursor` or implement `MediaSource`:
+
+    ```rust
+    use symphonia::core::io::MediaSourceStream;
+    use std::io::Cursor;
+
+    // From a byte buffer
+    let audio_data: Vec<u8> = /* ... */;
+    let cursor = Cursor::new(audio_data);
+    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+
+    // Probe and decode as usual
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &fmt_opts, &meta_opts)?;
+    ```
+
+    You can also implement custom `MediaSource` for network streams, encrypted sources, or other custom I/O.
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="My audio file won't decode - what's wrong?">
+    Common issues:
+
+    1. **Missing feature flag:**
+       - Ensure the codec/format is enabled in your `Cargo.toml`
+       - Use `features = ["all"]` to enable everything
+
+    2. **Unsupported codec or format:**
+       - Check [Supported Codecs](/resources/supported-codecs)
+       - Check [Supported Formats](/resources/supported-formats)
+       - Look for codec/format status ("-" means not implemented)
+
+    3. **Corrupted file:**
+       - Test with `symphonia-play --probe yourfile.mp3`
+       - Try the file in other players
+
+    4. **Incorrect hint:**
+       - Let Symphonia probe without hint: `Hint::new()`
+       - Or provide correct extension
+
+    5. **File is not audio:**
+       - Verify file type with `file yourfile.mp3`
+  </Accordion>
+
+  <Accordion title="I'm getting audio glitches or artifacts">
+    Possible causes:
+
+    1. **Codec status is "Good" or lower:**
+       - Check status on [Supported Codecs](/resources/supported-codecs)
+       - Some codecs are still in development
+       - Report issues on GitHub
+
+    2. **Buffer underruns:**
+       - Decoding too slow for real-time playback
+       - Use larger audio buffers
+       - Enable SIMD optimizations
+       - Profile and optimize
+
+    3. **Incorrect sample rate conversion:**
+       - Ensure audio output matches decoded sample rate
+       - Use proper resampling if needed
+
+    4. **File encoding issues:**
+       - Test with other decoders (FFmpeg)
+       - Try different files from the same source
+  </Accordion>
+
+  <Accordion title="Symphonia panics on certain files">
+    This should not happen! If Symphonia panics:
+
+    1. **Update to the latest version:**
+       - Check if issue is already fixed
+
+    2. **Report the issue:**
+       - Open an issue on [GitHub](https://github.com/pdeljanov/Symphonia/issues)
+       - Include minimal reproducible example
+       - Share the problematic file if possible (or similar file)
+
+    3. **Workaround:**
+       - Use `catch_unwind` to prevent process crash
+       - Skip problematic files
+       - Use alternative decoder temporarily
+
+    Symphonia aims to never panic on valid or invalid input. Panics are considered bugs.
+  </Accordion>
+
+  <Accordion title="How do I report bugs or request features?">
+    1. **Check existing issues:**
+       - Search [GitHub Issues](https://github.com/pdeljanov/Symphonia/issues)
+       - Check [GitHub Discussions](https://github.com/pdeljanov/Symphonia/discussions)
+
+    2. **Provide details:**
+       - Symphonia version
+       - Rust version
+       - Platform and architecture
+       - Minimal reproducible example
+       - Sample file (if relevant)
+
+    3. **For bugs:**
+       - Expected behavior
+       - Actual behavior
+       - Steps to reproduce
+       - Stack trace if applicable
+
+    4. **For features:**
+       - Use case description
+       - Why existing functionality doesn't work
+       - Willingness to contribute
+
+    See [Contributing Guidelines](https://github.com/pdeljanov/Symphonia/blob/master/CONTRIBUTING.md) for more information.
+  </Accordion>
+</AccordionGroup>
+
+## Contributing
+
+<AccordionGroup>
+  <Accordion title="How can I contribute to Symphonia?">
+    Many ways to contribute:
+
+    1. **Implement missing codecs or formats:**
+       - Check the roadmap for "-" status items
+       - Discuss your plans in an issue first
+
+    2. **Fix bugs:**
+       - Reproduce reported issues
+       - Submit fixes with tests
+
+    3. **Optimize performance:**
+       - Profile and identify bottlenecks
+       - Submit optimizations with benchmarks
+
+    4. **Improve documentation:**
+       - Add examples
+       - Clarify confusing sections
+       - Fix typos
+
+    5. **Test your media library:**
+       - Report issues with specific files
+       - Help validate decoders
+
+    6. **Answer questions:**
+       - Help other users in discussions
+       - Share your experience
+
+    See the [Contributing Guidelines](https://github.com/pdeljanov/Symphonia/blob/master/CONTRIBUTING.md) for detailed information.
+  </Accordion>
+
+  <Accordion title="What skills do I need to contribute decoders?">
+    **Recommended skills:**
+
+    - Strong Rust knowledge
+    - Understanding of DSP (Digital Signal Processing)
+    - Ability to read codec specifications
+    - Experience with bit-level data manipulation
+    - Debugging and testing skills
+
+    **Resources:**
+
+    - Codec specifications (often available as RFCs or standards)
+    - Reference implementations (FFmpeg, etc.)
+    - Existing Symphonia decoders as examples
+    - DSP textbooks and online resources
+
+    **Tips:**
+
+    - Start with simpler codecs (PCM, ADPCM)
+    - Reference existing implementations (with proper attribution)
+    - Write extensive tests
+    - Fuzz your implementation
+    - Ask for help in discussions
+
+    Don't be discouraged! Codec development is challenging but rewarding.
+  </Accordion>
+</AccordionGroup>
+
+## Still Have Questions?
+
+If your question isn't answered here:
+
+- Check the [Getting Started Guide](https://github.com/pdeljanov/Symphonia/blob/master/GETTING_STARTED.md)
+- Read the [API Documentation](https://docs.rs/symphonia)
+- Browse [GitHub Discussions](https://github.com/pdeljanov/Symphonia/discussions)
+- Open a new [GitHub Issue](https://github.com/pdeljanov/Symphonia/issues)
+
+The Symphonia community is friendly and helpful!

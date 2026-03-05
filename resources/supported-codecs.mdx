@@ -1,0 +1,204 @@
+---
+title: Supported Codecs
+description: Complete list of audio codecs and decoders supported by Symphonia
+---
+
+Symphonia provides pure Rust implementations of popular audio codecs. Each codec is provided by a separate crate and can be enabled using feature flags.
+
+## Feature Flags
+
+By default, Symphonia only enables royalty-free open standard codecs. Additional codecs can be enabled using feature flags:
+
+```toml
+symphonia = { version = "0.5", features = ["aac", "mp3", "alac"] }
+```
+
+<Tip>
+All codecs can be enabled at once with the `all-codecs` feature flag. All MPEG audio codecs (MP1, MP2, MP3) can be enabled with the `mpa` feature flag.
+</Tip>
+
+## Supported Codecs
+
+The following table shows all supported audio codecs, their development status, gapless playback support, and associated feature flags:
+
+| Codec                        | Status    | Gapless | Feature Flag | Default | Crate                      |
+|------------------------------|-----------|---------|--------------|---------|----------------------------|
+| AAC-LC                       | Great     | No      | `aac`        | No      | [`symphonia-codec-aac`]    |
+| ADPCM                        | Good      | Yes     | `adpcm`      | Yes     | [`symphonia-codec-adpcm`]  |
+| ALAC                         | Great     | Yes     | `alac`       | No      | [`symphonia-codec-alac`]   |
+| HE-AAC (AAC+, aacPlus)       | -         | -       | `he-aac`     | No      | [`symphonia-codec-aac`]    |
+| HE-AACv2 (eAAC+, aacPlus v2) | -         | -       | `he-aac-v2`  | No      | [`symphonia-codec-aac`]    |
+| FLAC                         | Excellent | Yes     | `flac`       | Yes     | [`symphonia-bundle-flac`]  |
+| MP1                          | Great     | No      | `mp1`, `mpa` | No      | [`symphonia-bundle-mp3`]   |
+| MP2                          | Great     | No      | `mp2`, `mpa` | No      | [`symphonia-bundle-mp3`]   |
+| MP3                          | Excellent | Yes     | `mp3`, `mpa` | No      | [`symphonia-bundle-mp3`]   |
+| Opus                         | -         | -       | `opus`       | Yes     | `symphonia-codec-opus`     |
+| PCM                          | Excellent | Yes     | `pcm`        | Yes     | [`symphonia-codec-pcm`]    |
+| Vorbis                       | Excellent | Yes     | `vorbis`     | Yes     | [`symphonia-codec-vorbis`] |
+| WavPack                      | -         | -       | `wavpack`    | Yes     | `symphonia-codec-wavpack`  |
+
+<Note>
+A `symphonia-bundle-*` package is a combination of a decoder and a native demuxer.
+</Note>
+
+[`symphonia-codec-aac`]: https://docs.rs/symphonia-codec-aac
+[`symphonia-codec-adpcm`]: https://docs.rs/symphonia-codec-adpcm
+[`symphonia-codec-alac`]: https://docs.rs/symphonia-codec-alac
+[`symphonia-bundle-flac`]: https://docs.rs/symphonia-bundle-flac
+[`symphonia-bundle-mp3`]: https://docs.rs/symphonia-bundle-mp3
+[`symphonia-codec-pcm`]: https://docs.rs/symphonia-codec-pcm
+[`symphonia-codec-vorbis`]: https://docs.rs/symphonia-codec-vorbis
+
+## Status Classifications
+
+<AccordionGroup>
+  <Accordion title="Excellent">
+    All media streams decode correctly. No audible or inaudible glitches. All required features are supported.
+    
+    This status is only assigned after passing all compliance tests, or if Symphonia's output matches a reference implementation over a large test corpus.
+  </Accordion>
+
+  <Accordion title="Great">
+    Most media streams decode correctly. Inaudible glitches may be present. Most common features are supported.
+    
+    This status indicates that major development is complete and the codec is acceptable for most applications.
+  </Accordion>
+
+  <Accordion title="Good">
+    Many media streams decode. Some streams may panic, error, or produce audible glitches. Some features may not be supported.
+    
+    This status indicates active development or known limitations.
+  </Accordion>
+
+  <Accordion title="- (In Progress)">
+    In work or not started yet. Not recommended for production use.
+  </Accordion>
+</AccordionGroup>
+
+## Codec Details
+
+### AAC-LC (Advanced Audio Coding - Low Complexity)
+
+- **Status**: Great
+- **Gapless**: No
+- **Crate**: `symphonia-codec-aac`
+- Most common AAC profile
+- Widely used in MP4 containers
+- Good quality at moderate bitrates
+- Decoder contributed by Kostya Shishkov
+
+### ADPCM (Adaptive Differential Pulse Code Modulation)
+
+- **Status**: Good
+- **Gapless**: Yes
+- **Crate**: `symphonia-codec-adpcm`
+- Simple lossy compression
+- Multiple variants (IMA, MS)
+- Commonly found in WAV files
+- Enabled by default
+
+### ALAC (Apple Lossless Audio Codec)
+
+- **Status**: Great
+- **Gapless**: Yes
+- **Crate**: `symphonia-codec-alac`
+- Lossless compression
+- Native to Apple ecosystem
+- Typically in MP4/M4A containers
+- Supports up to 32-bit audio
+
+### FLAC (Free Lossless Audio Codec)
+
+- **Status**: Excellent
+- **Gapless**: Yes
+- **Crate**: `symphonia-bundle-flac`
+- Industry-standard lossless codec
+- Excellent compression efficiency
+- Wide platform support
+- Enabled by default
+
+### MP1, MP2, MP3 (MPEG Audio Layer I, II, III)
+
+- **MP1 Status**: Great (Gapless: No)
+- **MP2 Status**: Great (Gapless: No)
+- **MP3 Status**: Excellent (Gapless: Yes)
+- **Crate**: `symphonia-bundle-mp3`
+- MP3 is the most common lossy audio format
+- Enable all MPEG audio codecs with `mpa` feature
+- MP3 decoder passes compliance tests
+
+### PCM (Pulse Code Modulation)
+
+- **Status**: Excellent
+- **Gapless**: Yes
+- **Crate**: `symphonia-codec-pcm`
+- Uncompressed audio
+- Multiple bit depths (8, 16, 24, 32-bit)
+- Integer and floating-point formats
+- Enabled by default
+
+### Vorbis
+
+- **Status**: Excellent
+- **Gapless**: Yes
+- **Crate**: `symphonia-codec-vorbis`
+- Free, open-source lossy codec
+- Typically in OGG containers
+- Superior to MP3 at equivalent bitrates
+- Enabled by default
+
+## Gapless Playback
+
+Gapless playback eliminates silence or gaps between tracks during continuous playback. The following codecs support gapless playback:
+
+- **ADPCM** - Yes
+- **ALAC** - Yes
+- **FLAC** - Yes
+- **MP3** - Yes
+- **PCM** - Yes
+- **Vorbis** - Yes
+
+<Warning>
+Gapless playback requires support from both the codec (decoder) and the container format (demuxer). See [Supported Formats](/resources/supported-formats) for format-specific gapless support.
+</Warning>
+
+## Usage Example
+
+```rust
+use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+// Open and probe the media file
+let file = Box::new(File::open("audio.flac")?);
+let mss = MediaSourceStream::new(file, Default::default());
+let mut hint = Hint::new();
+hint.with_extension("flac");
+
+let probed = symphonia::default::get_probe()
+    .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())?;
+
+let mut format = probed.format;
+
+// Find the first audio track
+let track = format.default_track().unwrap();
+
+// Create a decoder for the track's codec
+let mut decoder = symphonia::default::get_codecs()
+    .make(&track.codec_params, &DecoderOptions::default())?;
+
+// Decode packets
+let track_id = track.id;
+loop {
+    let packet = format.next_packet()?;
+    if packet.track_id() == track_id {
+        let decoded = decoder.decode(&packet)?;
+        // Process decoded audio samples
+    }
+}
+```
+
+For complete examples, see the [Examples](/resources/examples) page.

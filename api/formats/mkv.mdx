@@ -1,0 +1,151 @@
+---
+title: MKV/WebM Format
+description: Matroska (MKV) and WebM container format demuxer
+---
+
+The MKV/WebM demuxer provides support for Matroska and WebM container formats, widely used for high-quality audio and video storage.
+
+## Feature Flag
+
+```toml
+[dependencies]
+symphonia = { version = "0.5", features = ["mkv"] }
+```
+
+**Note:** MKV is enabled by default in Symphonia.
+
+## Status
+
+**Good** - Many media streams play. Some streams may panic, error, or produce audible glitches. Some features may not be supported.
+
+## Supported Codecs
+
+MKV/WebM containers can encapsulate various audio codecs:
+
+- **Vorbis** (WebM standard)
+- **Opus** (WebM standard)
+- **FLAC**
+- **AAC**
+- **MP3**
+- **PCM**
+- **ALAC**
+
+## Gapless Playback
+
+❌ **Not supported** - The demuxer does not currently support gapless playback.
+
+## Metadata Support
+
+MKV files support rich metadata including:
+
+- Track titles and descriptions
+- Chapter information
+- Tags (title, artist, album, etc.)
+- Attachments (cover art, fonts)
+- Language information
+
+Metadata is parsed from the MKV Tags element and track headers.
+
+## Usage Example
+
+```rust
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Open the MKV/WebM file
+    let file = Box::new(File::open("audio.webm")?);
+    let mss = MediaSourceStream::new(file, Default::default());
+
+    // Create a hint
+    let mut hint = Hint::new();
+    hint.with_extension("webm");
+
+    // Probe the media source
+    let format_opts = FormatOptions::default();
+    let metadata_opts = MetadataOptions::default();
+    
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &format_opts, &metadata_opts)?;
+
+    let mut format = probed.format;
+
+    // MKV files can have multiple audio tracks
+    for track in format.tracks() {
+        if track.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL {
+            println!("Track {}: {:?}", track.id, track.codec_params.codec);
+            println!("  Sample Rate: {:?}", track.codec_params.sample_rate);
+            println!("  Channels: {:?}", track.codec_params.channels);
+            if let Some(lang) = &track.language {
+                println!("  Language: {}", lang);
+            }
+        }
+    }
+
+    // Read metadata and tags
+    if let Some(metadata) = probed.metadata.get() {
+        for tag in metadata.tags() {
+            println!("{}: {}", tag.key, tag.value);
+        }
+    }
+
+    // Get cue points (chapters)
+    for cue in format.cues() {
+        println!("Cue at {}: {:?}", cue.index, cue.tags);
+    }
+
+    Ok(())
+}
+```
+
+## Advanced Features
+
+### Working with Tracks
+
+MKV files often contain multiple tracks (audio, video, subtitles). Filter for audio tracks:
+
+```rust
+let audio_tracks: Vec<_> = format.tracks()
+    .iter()
+    .filter(|t| matches!(t.codec_params.codec, 
+        symphonia::core::codecs::CODEC_TYPE_NULL))
+    .collect();
+```
+
+### EBML Structure
+
+MKV uses the Extensible Binary Meta Language (EBML) format. Symphonia handles EBML parsing internally.
+
+## Known Limitations
+
+- Gapless playback is not supported
+- Some advanced Matroska features may not be fully implemented
+- Video streams are not decoded (audio-only demuxing)
+- Subtitle tracks are not extracted
+- Live streaming (WebM) may have limited support
+- Some compression/encryption features are not supported
+
+## WebM vs MKV
+
+WebM is a subset of Matroska with specific codec restrictions:
+
+- **Video:** VP8, VP9, AV1
+- **Audio:** Vorbis, Opus
+- **Container:** Matroska subset
+
+Symphonia's MKV demuxer handles both MKV and WebM files transparently.
+
+## Crate Information
+
+**Crate:** [`symphonia-format-mkv`](https://docs.rs/symphonia-format-mkv)
+
+**Version:** 0.5.5
+
+**License:** MPL-2.0
+
+**Author:** Dariusz Niedoba
+
+**Safety:** 100% safe Rust (forbids unsafe code)

@@ -1,0 +1,240 @@
+---
+title: ID3 Tags
+description: ID3v1 and ID3v2 metadata tag reader
+---
+
+ID3 is the de facto standard for metadata in MP3 files and is also used in other formats. Symphonia supports both ID3v1 and ID3v2 (versions 2.2, 2.3, and 2.4).
+
+## Supported Formats
+
+ID3 tags are commonly found in:
+
+- **MP3 files** - Primary use case
+- **WAV files** - Can contain ID3v2 tags
+- **AIFF files** - Can contain ID3v2 tags
+
+## ID3 Versions
+
+### ID3v1
+
+**Status:** Great
+
+- Fixed 128-byte structure at end of file
+- Limited to 30-character fields
+- Supports: Title, Artist, Album, Year, Comment, Genre
+- ID3v1.1 adds track number
+
+### ID3v2
+
+**Status:** Great
+
+- Variable size, placed at beginning of file
+- Supports arbitrary text length (UTF-8, UTF-16)
+- Extensive frame types for rich metadata
+- Versions supported: 2.2.x, 2.3.x, 2.4.x
+
+## Available Tag Fields
+
+Symphonia maps ID3 frames to standard tag keys:
+
+### Basic Information
+
+- `Artist` - Lead performer(s)
+- `AlbumArtist` - Album artist
+- `Album` - Album title
+- `TrackTitle` - Song title
+- `TrackNumber` - Track number
+- `TrackTotal` - Total tracks
+- `DiscNumber` - Disc number
+- `DiscTotal` - Total discs
+- `Date` - Release date
+- `OriginalDate` - Original release date
+- `Genre` - Genre
+
+### Credits
+
+- `Composer` - Composer
+- `Conductor` - Conductor
+- `Lyricist` - Lyricist/text writer
+- `Writer` - Writer
+- `Performer` - Performer
+- `Arranger` - Arranger
+- `Engineer` - Engineer
+- `Producer` - Producer
+- `Remixer` - Remixer
+- `MixDj` - DJ mixer
+- `MixEngineer` - Mix engineer
+
+### Additional Metadata
+
+- `Copyright` - Copyright message
+- `Comment` - Comments
+- `EncodedBy` - Encoded by
+- `Encoder` - Encoder software
+- `Bpm` - Beats per minute
+- `Mood` - Mood
+- `Label` - Record label
+- `Isrc` - ISRC code
+- `Barcode` - Barcode
+
+### MusicBrainz Identifiers
+
+- `MusicBrainzArtistId`
+- `MusicBrainzAlbumId`
+- `MusicBrainzAlbumArtistId`
+- `MusicBrainzRecordingId`
+- `MusicBrainzReleaseGroupId`
+- `MusicBrainzTrackId`
+- `MusicBrainzWorkId`
+
+### Album Art
+
+ID3v2 supports embedded images through APIC (Attached Picture) frames with various types:
+
+- Front cover
+- Back cover
+- Media (CD/vinyl)
+- Artist/performer
+- Icon
+- And 16+ other picture types
+
+## Reading ID3 Tags
+
+### Basic Tag Reading
+
+```rust
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let file = Box::new(File::open("song.mp3")?);
+    let mss = MediaSourceStream::new(file, Default::default());
+
+    let mut hint = Hint::new();
+    hint.with_extension("mp3");
+
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())?;
+
+    // Access metadata
+    if let Some(metadata) = probed.metadata.get() {
+        println!("=== ID3 Tags ===");
+        for tag in metadata.tags() {
+            if let Some(std_key) = tag.std_key {
+                println!("{:?}: {}", std_key, tag.value);
+            } else {
+                println!("{}: {}", tag.key, tag.value);
+            }
+        }
+    }
+
+    Ok(())
+}
+```
+
+### Reading Album Art
+
+```rust
+use symphonia::core::meta::StandardVisualKey;
+
+if let Some(metadata) = probed.metadata.get() {
+    // Get all visuals
+    for visual in metadata.visuals() {
+        println!("Image format: {:?}", visual.media_type);
+        println!("Image size: {} bytes", visual.data.len());
+        
+        if let Some(usage) = visual.usage {
+            println!("Usage: {:?}", usage);
+        }
+
+        // Save front cover
+        if visual.usage == Some(StandardVisualKey::FrontCover) {
+            std::fs::write("cover.jpg", &visual.data)?;
+            println!("Saved front cover");
+        }
+    }
+}
+```
+
+### Finding Specific Tags
+
+```rust
+use symphonia::core::meta::StandardTagKey;
+
+if let Some(metadata) = probed.metadata.get() {
+    // Find artist
+    let artist = metadata.tags()
+        .iter()
+        .find(|tag| tag.std_key == Some(StandardTagKey::Artist))
+        .map(|tag| tag.value.to_string());
+
+    if let Some(artist) = artist {
+        println!("Artist: {}", artist);
+    }
+
+    // Find all comments
+    let comments: Vec<_> = metadata.tags()
+        .iter()
+        .filter(|tag| tag.std_key == Some(StandardTagKey::Comment))
+        .map(|tag| tag.value.to_string())
+        .collect();
+
+    for comment in comments {
+        println!("Comment: {}", comment);
+    }
+}
+```
+
+## Handling ID3 Updates
+
+ID3v2 supports update flags indicating if a tag is an update to an earlier tag. This is automatically handled during parsing.
+
+## Text Encoding
+
+ID3v2 supports multiple text encodings:
+
+- ISO-8859-1 (Latin-1)
+- UTF-16 with BOM
+- UTF-16BE (big-endian)
+- UTF-8 (ID3v2.4)
+
+Symphonia automatically handles encoding conversion and presents all text as Rust UTF-8 strings.
+
+## Unsynchronization
+
+ID3v2 uses unsynchronization to prevent false MP3 sync patterns. Symphonia handles this automatically:
+
+- Frame-level unsynchronization (ID3v2.4)
+- Tag-level unsynchronization (ID3v2.2, 2.3)
+
+## Known Limitations
+
+- ID3v2.2 compression is not supported (deprecated feature)
+- Some rare or experimental frames may not be parsed
+- Extended header CRC verification is not performed
+- Encryption is not supported
+- Grouping identity is not exposed
+
+## Performance Considerations
+
+- ID3v1 tags are quick to read (fixed 128 bytes)
+- ID3v2 tags can be large (up to several MB with images)
+- Both ID3v1 and ID3v2 can be present; Symphonia reads both
+- Use `MetadataOptions` to control parsing behavior
+
+## Crate Information
+
+**Crate:** [`symphonia-metadata`](https://docs.rs/symphonia-metadata)
+
+**Version:** 0.5.5
+
+**License:** MPL-2.0
+
+**Safety:** 100% safe Rust (forbids unsafe code)
+
+## See Also
+
+- [Vorbis Comment](/api/metadata/vorbis-comment) - Alternative metadata format for OGG and FLAC

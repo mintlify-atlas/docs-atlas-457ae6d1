@@ -1,0 +1,365 @@
+---
+title: PCM Codec
+description: Pulse Code Modulation (PCM) decoder for raw and log-PCM audio
+---
+
+## Overview
+
+Symphonia provides a comprehensive PCM decoder supporting a wide range of uncompressed audio formats including raw PCM (signed/unsigned integers and floating-point) and log-PCM codecs (A-law and μ-law).
+
+## Feature Flag
+
+To enable PCM support, add the `pcm` feature to your `Cargo.toml`:
+
+```toml
+[dependencies]
+symphonia = { version = "0.5", features = ["pcm"] }
+```
+
+Or use the standalone crate:
+
+```toml
+[dependencies]
+symphonia-codec-pcm = "0.5"
+```
+
+## Status
+
+**Status**: Excellent
+
+- Decoding: Fully supported for all variants
+- Gapless Playback: Yes (inherent to PCM)
+- Performance: Minimal overhead
+
+## Decoder
+
+The PCM decoder is implemented by the `PcmDecoder` struct:
+
+```rust
+use symphonia_codec_pcm::PcmDecoder;
+use symphonia::core::codecs::{Decoder, DecoderOptions};
+
+// Create decoder from codec parameters
+let mut decoder = PcmDecoder::try_new(&codec_params, &DecoderOptions::default())?;
+
+// Decode a packet
+let decoded = decoder.decode(&packet)?;
+```
+
+## Supported Formats
+
+### Signed Integer PCM
+
+| Format | Codec Type | Bit Depth | Endianness |
+|--------|-----------|-----------|------------|
+| S8 | `CODEC_TYPE_PCM_S8` | 8-bit | N/A |
+| S16LE | `CODEC_TYPE_PCM_S16LE` | 16-bit | Little |
+| S16BE | `CODEC_TYPE_PCM_S16BE` | 16-bit | Big |
+| S24LE | `CODEC_TYPE_PCM_S24LE` | 24-bit | Little |
+| S24BE | `CODEC_TYPE_PCM_S24BE` | 24-bit | Big |
+| S32LE | `CODEC_TYPE_PCM_S32LE` | 32-bit | Little |
+| S32BE | `CODEC_TYPE_PCM_S32BE` | 32-bit | Big |
+
+### Unsigned Integer PCM
+
+| Format | Codec Type | Bit Depth | Endianness |
+|--------|-----------|-----------|------------|
+| U8 | `CODEC_TYPE_PCM_U8` | 8-bit | N/A |
+| U16LE | `CODEC_TYPE_PCM_U16LE` | 16-bit | Little |
+| U16BE | `CODEC_TYPE_PCM_U16BE` | 16-bit | Big |
+| U24LE | `CODEC_TYPE_PCM_U24LE` | 24-bit | Little |
+| U24BE | `CODEC_TYPE_PCM_U24BE` | 24-bit | Big |
+| U32LE | `CODEC_TYPE_PCM_U32LE` | 32-bit | Little |
+| U32BE | `CODEC_TYPE_PCM_U32BE` | 32-bit | Big |
+
+### Floating-Point PCM
+
+| Format | Codec Type | Precision | Endianness |
+|--------|-----------|-----------|------------|
+| F32LE | `CODEC_TYPE_PCM_F32LE` | 32-bit | Little |
+| F32BE | `CODEC_TYPE_PCM_F32BE` | 32-bit | Big |
+| F64LE | `CODEC_TYPE_PCM_F64LE` | 64-bit | Little |
+| F64BE | `CODEC_TYPE_PCM_F64BE` | 64-bit | Big |
+
+### Log-PCM (Companded)
+
+| Format | Codec Type | Description |
+|--------|-----------|-------------|
+| A-law | `CODEC_TYPE_PCM_ALAW` | ITU-T G.711 A-law |
+| μ-law | `CODEC_TYPE_PCM_MULAW` | ITU-T G.711 μ-law |
+
+## Codec Types
+
+```rust
+use symphonia::core::codecs::*;
+
+// Signed integer formats
+CODEC_TYPE_PCM_S8
+CODEC_TYPE_PCM_S16LE
+CODEC_TYPE_PCM_S16BE
+CODEC_TYPE_PCM_S24LE
+CODEC_TYPE_PCM_S24BE
+CODEC_TYPE_PCM_S32LE
+CODEC_TYPE_PCM_S32BE
+
+// Unsigned integer formats
+CODEC_TYPE_PCM_U8
+CODEC_TYPE_PCM_U16LE
+CODEC_TYPE_PCM_U16BE
+CODEC_TYPE_PCM_U24LE
+CODEC_TYPE_PCM_U24BE
+CODEC_TYPE_PCM_U32LE
+CODEC_TYPE_PCM_U32BE
+
+// Floating-point formats
+CODEC_TYPE_PCM_F32LE
+CODEC_TYPE_PCM_F32BE
+CODEC_TYPE_PCM_F64LE
+CODEC_TYPE_PCM_F64BE
+
+// Log-PCM formats
+CODEC_TYPE_PCM_ALAW
+CODEC_TYPE_PCM_MULAW
+```
+
+## Container Support
+
+PCM is commonly used in:
+
+- **WAV** (RIFF WAVE)
+- **AIFF** (Audio Interchange File Format)
+- **CAF** (Core Audio Format)
+- **Raw audio files**
+
+```toml
+[dependencies]
+# For WAV files
+symphonia = { version = "0.5", features = ["pcm", "wav"] }
+
+# For AIFF files
+symphonia = { version = "0.5", features = ["pcm", "aiff"] }
+```
+
+## Codec Parameters
+
+PCM decoding requires specific parameters:
+
+```rust
+// Required parameters:
+// - codec: The specific PCM codec type
+// - sample_rate: Sample rate in Hz
+// - channels or channel_layout: Channel configuration
+// - max_frames_per_packet: Maximum frames per packet
+
+// Optional but recommended:
+// - bits_per_sample: Actual bit depth
+// - bits_per_coded_sample: Coded bit depth (may differ)
+```
+
+## Bit Depth Handling
+
+PCM supports variable bit depths within a format:
+
+```rust
+// Example: 20-bit audio in 24-bit format
+// bits_per_sample = 20
+// bits_per_coded_sample = 24
+// The decoder automatically shifts samples appropriately
+```
+
+## Sample Rates
+
+Supports all sample rates, common ones include:
+
+- 8 kHz (telephony)
+- 11.025 kHz, 22.05 kHz, 44.1 kHz (CD quality)
+- 16 kHz, 32 kHz, 48 kHz, 96 kHz, 192 kHz
+- 88.2 kHz, 176.4 kHz (high-resolution)
+
+## Channel Support
+
+Supports any channel configuration from mono to many channels.
+
+## Usage Example
+
+```rust
+use symphonia::core::codecs::{CODEC_TYPE_PCM_S16LE, DecoderOptions};
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+fn decode_wav_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Open the media source
+    let file = Box::new(File::open(path)?);
+    let mss = MediaSourceStream::new(file, Default::default());
+
+    // Create a hint
+    let mut hint = Hint::new();
+    hint.with_extension("wav");
+
+    // Probe the media source
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())?;
+
+    let mut format = probed.format;
+    let track = &format.tracks()[0];
+
+    println!("Codec: {:?}", track.codec_params.codec);
+    println!("Sample Rate: {:?}", track.codec_params.sample_rate);
+    println!("Channels: {:?}", track.codec_params.channels);
+    println!("Bit Depth: {:?}", track.codec_params.bits_per_sample);
+
+    // Create the decoder
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())?;
+
+    // Decode packets
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(_) => break,
+        };
+
+        let decoded = decoder.decode(&packet)?;
+        // Process decoded audio...
+    }
+
+    Ok(())
+}
+```
+
+## Working with Different Sample Formats
+
+```rust
+use symphonia::core::audio::AudioBufferRef;
+use symphonia::core::conv::{FromSample, IntoSample};
+
+let decoded = decoder.decode(&packet)?;
+
+match decoded {
+    AudioBufferRef::U8(buf) => {
+        // 8-bit unsigned samples
+    }
+    AudioBufferRef::S16(buf) => {
+        // 16-bit signed samples (most common)
+        for channel in 0..buf.spec().channels.count() {
+            let samples = buf.chan(channel);
+            // Process i16 samples...
+        }
+    }
+    AudioBufferRef::S24(buf) => {
+        // 24-bit signed samples
+    }
+    AudioBufferRef::S32(buf) => {
+        // 32-bit signed samples
+    }
+    AudioBufferRef::F32(buf) => {
+        // 32-bit float samples
+    }
+    AudioBufferRef::F64(buf) => {
+        // 64-bit float samples
+    }
+    _ => {}
+}
+```
+
+## A-law and μ-law Decoding
+
+Log-PCM formats are automatically converted to linear PCM:
+
+```rust
+use symphonia::core::codecs::{CODEC_TYPE_PCM_ALAW, CODEC_TYPE_PCM_MULAW};
+
+// A-law and μ-law are decoded to S16
+// 8-bit companded → 16-bit linear PCM
+
+let decoded = decoder.decode(&packet)?;
+match decoded {
+    AudioBufferRef::S16(buf) => {
+        // Linear 16-bit samples from A-law/μ-law
+    }
+    _ => unreachable!(),
+}
+```
+
+### A-law
+
+Used primarily in European telephony:
+- Better signal-to-noise ratio for low amplitude signals
+- Dynamic range: ~13-bit equivalent
+
+### μ-law
+
+Used primarily in North American and Japanese telephony:
+- Slightly different companding curve
+- Dynamic range: ~13-bit equivalent
+
+## Performance
+
+- **Pure Rust implementation** with no unsafe code
+- **Minimal overhead**: Direct memory copies for most formats
+- **Zero-copy** where possible
+- **Efficient bit-packing** handling for 24-bit formats
+- **Optimized transfer functions** for A-law and μ-law
+
+## Sample Format Conversion
+
+Use Symphonia's conversion utilities to convert between sample formats:
+
+```rust
+use symphonia::core::conv::{FromSample, IntoSample};
+
+// Convert any sample type to f32
+let float_sample: f32 = sample.into_sample();
+
+// Convert from f32 to any sample type  
+let int_sample: i16 = f32::from_sample(0.5);
+```
+
+## Limitations
+
+- Planar PCM formats are not yet supported
+- No encoding support (decode-only)
+
+## Common Use Cases
+
+### CD Audio (CDDA)
+```rust
+// 16-bit signed, 44.1 kHz, stereo, little-endian
+CODEC_TYPE_PCM_S16LE
+```
+
+### Professional Audio
+```rust
+// 24-bit signed, 96 kHz or 192 kHz
+CODEC_TYPE_PCM_S24LE
+```
+
+### Telephony
+```rust
+// 8-bit A-law or μ-law, 8 kHz, mono
+CODEC_TYPE_PCM_ALAW
+CODEC_TYPE_PCM_MULAW
+```
+
+### High-Resolution Audio
+```rust
+// 32-bit float, 192 kHz
+CODEC_TYPE_PCM_F32LE
+```
+
+## Documentation
+
+- [crates.io](https://crates.io/crates/symphonia-codec-pcm)
+- [API Documentation](https://docs.rs/symphonia-codec-pcm)
+- [ITU-T G.711](https://www.itu.int/rec/T-REC-G.711) (A-law and μ-law)
+
+## See Also
+
+- [Core Concepts](/api/core/overview)
+- [Decoding Guide](/guides/decoding-audio)
+- [WAV Format](/api/formats/wav)
+- [AIFF Format](/api/formats/aiff)
+- [Sample Conversion](/api/audio/sample-buffer)

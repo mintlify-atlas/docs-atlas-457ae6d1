@@ -1,0 +1,553 @@
+---
+title: Custom Codecs
+description: Implement and register custom decoders for proprietary or unsupported codecs
+icon: code
+---
+
+Symphonia's architecture allows you to implement custom decoders for codecs that aren't built-in. This is useful for proprietary formats, experimental codecs, or specialized audio processing.
+
+## Overview
+
+Implementing a custom decoder involves:
+
+1. Implementing the `Decoder` trait
+2. Creating codec descriptors
+3. Registering with a `CodecRegistry`
+4. Using your custom decoder
+
+## Implementing the Decoder Trait
+
+The `Decoder` trait defines the interface all decoders must implement.
+
+### Trait Requirements
+
+```rust
+use symphonia::core::codecs::{
+    Decoder, DecoderOptions, CodecParameters, CodecDescriptor, FinalizeResult
+};
+use symphonia::core::audio::AudioBufferRef;
+use symphonia::core::formats::Packet;
+use symphonia::core::errors::Result;
+
+pub struct MyCustomDecoder {
+    params: CodecParameters,
+    // Your decoder state
+}
+
+impl Decoder for MyCustomDecoder {
+    fn try_new(
+        params: &CodecParameters,
+        options: &DecoderOptions,
+    ) -> Result<Self>
+    where
+        Self: Sized,
+    {
+        // Initialize your decoder
+        // Validate parameters
+        // Allocate resources
+        
+        Ok(MyCustomDecoder {
+            params: params.clone(),
+        })
+    }
+
+    fn supported_codecs() -> &'static [CodecDescriptor]
+    where
+        Self: Sized,
+    {
+        // Return descriptors for codecs you support
+        &[MY_CODEC_DESCRIPTOR]
+    }
+
+    fn reset(&mut self) {
+        // Reset decoder state
+        // Called after seeks or discontinuities
+    }
+
+    fn codec_params(&self) -> &CodecParameters {
+        &self.params
+    }
+
+    fn decode(&mut self, packet: &Packet) -> Result<AudioBufferRef<'_>> {
+        // Decode packet data into audio samples
+        // Return AudioBufferRef
+        todo!()
+    }
+
+    fn finalize(&mut self) -> FinalizeResult {
+        // Called when decoding is complete
+        // Return verification results if applicable
+        FinalizeResult::default()
+    }
+
+    fn last_decoded(&self) -> AudioBufferRef<'_> {
+        // Return the last successfully decoded buffer
+        // Must return empty buffer if last decode failed
+        todo!()
+    }
+}
+```
+
+### Key Methods
+
+<AccordionGroup>
+  <Accordion title="try_new()">
+    Instantiates your decoder with the given parameters:
+
+    ```rust
+    fn try_new(
+        params: &CodecParameters,
+        options: &DecoderOptions,
+    ) -> Result<Self> {
+        // Validate codec type
+        if params.codec != MY_CODEC_TYPE {
+            return unsupported_error("unsupported codec");
+        }
+        
+        // Check required parameters
+        let sample_rate = params.sample_rate
+            .ok_or_else(|| decode_error("missing sample rate"))?;
+        
+        let channels = params.channels
+            .ok_or_else(|| decode_error("missing channels"))?;
+        
+        // Initialize decoder state
+        let decoder_state = initialize_decoder(sample_rate, channels)?;
+        
+        Ok(MyCustomDecoder {
+            params: params.clone(),
+            state: decoder_state,
+        })
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="decode()">
+    The core decoding method that converts packets to audio:
+
+    ```rust
+    use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
+    use symphonia::core::sample::SampleFormat;
+
+    fn decode(&mut self, packet: &Packet) -> Result<AudioBufferRef<'_>> {
+        // Get packet data
+        let data = packet.buf();
+        
+        // Decode packet
+        let decoded_samples = my_decode_algorithm(data)?;
+        
+        // Create audio buffer
+        let spec = *self.audio_buf.spec();
+        let mut audio_buf = AudioBuffer::<f32>::new(
+            decoded_samples.len() as u64,
+            spec,
+        );
+        
+        // Fill audio buffer with decoded samples
+        for (ch_idx, channel) in decoded_samples.iter().enumerate() {
+            let buf_channel = audio_buf.chan_mut(ch_idx);
+            buf_channel.copy_from_slice(channel);
+        }
+        
+        // Return reference
+        Ok(audio_buf.as_audio_buffer_ref())
+    }
+    ```
+    
+    <Warning>
+      If decoding fails, you must clear the internal buffer before returning an error.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="reset()">
+    Resets decoder state after seeks:
+
+    ```rust
+    fn reset(&mut self) {
+        // Clear any buffered data
+        self.buffer.clear();
+        
+        // Reset codec state
+        self.decoder_state.reset();
+        
+        // Reset timestamps
+        self.last_timestamp = 0;
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="last_decoded()">
+    Returns the last decoded buffer:
+
+    ```rust
+    fn last_decoded(&self) -> AudioBufferRef<'_> {
+        // Return the internal buffer
+        self.audio_buf.as_audio_buffer_ref()
+    }
+    ```
+    
+    <Tip>
+      Store your decoded audio in an internal buffer that persists between `decode()` calls.
+    </Tip>
+  </Accordion>
+</AccordionGroup>
+
+## Creating Codec Descriptors
+
+Codec descriptors tell Symphonia about your codec.
+
+### Define Codec Type
+
+First, declare your codec type:
+
+```rust
+use symphonia::core::codecs::{CodecType, decl_codec_type};
+
+// Define a unique codec type
+// Use a 5-character ASCII identifier
+pub const CODEC_TYPE_MY_CODEC: CodecType = decl_codec_type(b"mycd");
+```
+
+### Create Descriptor
+
+```rust
+use symphonia::core::codecs::{CodecDescriptor, DecoderOptions, CodecParameters};
+use symphonia::core::errors::Result;
+use symphonia::core::support_codec;
+
+const MY_CODEC_DESCRIPTOR: CodecDescriptor = support_codec!(
+    CODEC_TYPE_MY_CODEC,
+    "mycodec",
+    "My Custom Audio Codec"
+);
+```
+
+The `support_codec!` macro expands to:
+
+```rust
+CodecDescriptor {
+    codec: CODEC_TYPE_MY_CODEC,
+    short_name: "mycodec",
+    long_name: "My Custom Audio Codec",
+    inst_func: |params, opt| {
+        Ok(Box::new(MyCustomDecoder::try_new(&params, &opt)?))
+    },
+}
+```
+
+## Registering Custom Decoders
+
+Once implemented, register your decoder with a `CodecRegistry`.
+
+<Steps>
+  <Step title="Create a codec registry">
+    ```rust
+    use symphonia::core::codecs::CodecRegistry;
+
+    // Create new registry
+    let mut registry = CodecRegistry::new();
+
+    // Register all default codecs
+    symphonia::default::register_enabled_codecs(&mut registry);
+    ```
+  </Step>
+
+  <Step title="Register your decoder">
+    ```rust
+    // Register your custom decoder
+    registry.register_all::<MyCustomDecoder>();
+
+    // Or register just the descriptor
+    registry.register(&MY_CODEC_DESCRIPTOR);
+    ```
+  </Step>
+
+  <Step title="Use the registry">
+    ```rust
+    use symphonia::core::codecs::DecoderOptions;
+
+    // Find a track
+    let track = format.default_track().unwrap();
+
+    // Create decoder from custom registry
+    let dec_opts = DecoderOptions::default();
+    let decoder = registry.make(&track.codec_params, &dec_opts)?;
+
+    // decoder can be your custom decoder or a built-in one
+    ```
+  </Step>
+</Steps>
+
+## Complete Example
+
+Here's a complete example implementing a simple PCM pass-through decoder:
+
+```rust
+use symphonia::core::audio::{
+    AudioBuffer, AudioBufferRef, AsAudioBufferRef, Signal, SignalSpec
+};
+use symphonia::core::codecs::{
+    Decoder, DecoderOptions, CodecParameters, CodecDescriptor,
+    CodecType, FinalizeResult, decl_codec_type
+};
+use symphonia::core::errors::{Result, decode_error};
+use symphonia::core::formats::Packet;
+use symphonia::core::sample::SampleFormat;
+use symphonia::core::support_codec;
+use std::mem;
+
+// Define custom codec type
+pub const CODEC_TYPE_CUSTOM_PCM: CodecType = decl_codec_type(b"cpcm");
+
+// Codec descriptor
+const CUSTOM_PCM_DESCRIPTOR: CodecDescriptor = support_codec!(
+    CODEC_TYPE_CUSTOM_PCM,
+    "custom-pcm",
+    "Custom PCM Codec"
+);
+
+// Decoder implementation
+pub struct CustomPcmDecoder {
+    params: CodecParameters,
+    buf: AudioBuffer<f32>,
+}
+
+impl Decoder for CustomPcmDecoder {
+    fn try_new(
+        params: &CodecParameters,
+        _options: &DecoderOptions,
+    ) -> Result<Self> {
+        // Validate parameters
+        let sample_rate = params.sample_rate
+            .ok_or_else(|| decode_error("missing sample rate"))?;
+        
+        let channels = params.channels
+            .ok_or_else(|| decode_error("missing channels"))?;
+        
+        // Calculate buffer size
+        let max_frames = params.max_frames_per_packet
+            .unwrap_or(4096);
+        
+        // Create audio buffer
+        let spec = SignalSpec::new(sample_rate, channels);
+        let buf = AudioBuffer::<f32>::new(max_frames, spec);
+        
+        Ok(CustomPcmDecoder {
+            params: params.clone(),
+            buf,
+        })
+    }
+
+    fn supported_codecs() -> &'static [CodecDescriptor] {
+        &[CUSTOM_PCM_DESCRIPTOR]
+    }
+
+    fn reset(&mut self) {
+        self.buf.clear();
+    }
+
+    fn codec_params(&self) -> &CodecParameters {
+        &self.params
+    }
+
+    fn decode(&mut self, packet: &Packet) -> Result<AudioBufferRef<'_>> {
+        // Get packet data
+        let data = packet.buf();
+        
+        // Assume data is f32 samples
+        let sample_count = data.len() / mem::size_of::<f32>();
+        let samples = unsafe {
+            std::slice::from_raw_parts(
+                data.as_ptr() as *const f32,
+                sample_count,
+            )
+        };
+        
+        let channels = self.params.channels.unwrap().count();
+        let frames = sample_count / channels;
+        
+        // Clear and prepare buffer
+        self.buf.clear();
+        self.buf.render_reserved(Some(frames));
+        
+        // Copy samples to buffer (interleaved to planar)
+        for ch in 0..channels {
+            let buf_channel = self.buf.chan_mut(ch);
+            for (frame, sample) in buf_channel.iter_mut().enumerate() {
+                *sample = samples[frame * channels + ch];
+            }
+        }
+        
+        Ok(self.buf.as_audio_buffer_ref())
+    }
+
+    fn finalize(&mut self) -> FinalizeResult {
+        FinalizeResult::default()
+    }
+
+    fn last_decoded(&self) -> AudioBufferRef<'_> {
+        self.buf.as_audio_buffer_ref()
+    }
+}
+
+// Usage
+fn main() -> Result<()> {
+    use symphonia::core::codecs::CodecRegistry;
+    
+    // Create custom registry
+    let mut registry = CodecRegistry::new();
+    symphonia::default::register_enabled_codecs(&mut registry);
+    registry.register_all::<CustomPcmDecoder>();
+    
+    // Now you can use it like any other decoder
+    // ...
+    
+    Ok(())
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Validate Parameters" icon="check-double">
+    Always validate `CodecParameters` in `try_new()`. Return descriptive errors for missing or invalid values.
+  </Card>
+  
+  <Card title="Handle Errors Gracefully" icon="life-ring">
+    Clear internal buffers when `decode()` fails. Return buffers with length 0 from `last_decoded()`.
+  </Card>
+  
+  <Card title="Optimize Buffer Reuse" icon="recycle">
+    Reuse internal buffers across `decode()` calls to minimize allocations.
+  </Card>
+  
+  <Card title="Implement Reset Properly" icon="rotate-right">
+    Ensure `reset()` clears all stateful data so seeking works correctly.
+  </Card>
+</CardGroup>
+
+## Advanced Topics
+
+### Verification Support
+
+If your codec supports verification (checksums, etc.):
+
+```rust
+use symphonia::core::codecs::{FinalizeResult, VerificationCheck};
+
+impl Decoder for MyCustomDecoder {
+    fn finalize(&mut self) -> FinalizeResult {
+        let verify_ok = if self.verify_enabled {
+            Some(self.checksum_valid)
+        } else {
+            None
+        };
+        
+        FinalizeResult { verify_ok }
+    }
+}
+```
+
+### Sample Format Conversion
+
+Return different sample formats:
+
+```rust
+use symphonia::core::audio::{AudioBuffer, AudioBufferRef};
+
+fn decode(&mut self, packet: &Packet) -> Result<AudioBufferRef<'_>> {
+    match self.output_format {
+        SampleFormat::F32 => {
+            let buf: &AudioBuffer<f32> = &self.buf_f32;
+            Ok(buf.as_audio_buffer_ref())
+        }
+        SampleFormat::S16 => {
+            let buf: &AudioBuffer<i16> = &self.buf_s16;
+            Ok(buf.as_audio_buffer_ref())
+        }
+        _ => unsupported_error("unsupported sample format"),
+    }
+}
+```
+
+### Multi-Codec Decoders
+
+Support multiple related codecs:
+
+```rust
+const CODEC_TYPE_MY_V1: CodecType = decl_codec_type(b"myc1");
+const CODEC_TYPE_MY_V2: CodecType = decl_codec_type(b"myc2");
+
+impl Decoder for MyCustomDecoder {
+    fn supported_codecs() -> &'static [CodecDescriptor] {
+        &[
+            support_codec!(CODEC_TYPE_MY_V1, "mycodec-v1", "My Codec v1"),
+            support_codec!(CODEC_TYPE_MY_V2, "mycodec-v2", "My Codec v2"),
+        ]
+    }
+    
+    fn try_new(params: &CodecParameters, options: &DecoderOptions) -> Result<Self> {
+        match params.codec {
+            CODEC_TYPE_MY_V1 => Self::new_v1(params, options),
+            CODEC_TYPE_MY_V2 => Self::new_v2(params, options),
+            _ => unsupported_error("unsupported codec"),
+        }
+    }
+}
+```
+
+## Testing Your Decoder
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use symphonia::core::codecs::DecoderOptions;
+    use symphonia::core::audio::{Channels, SignalSpec};
+    
+    #[test]
+    fn test_decoder_creation() {
+        let mut params = CodecParameters::new();
+        params.for_codec(CODEC_TYPE_CUSTOM_PCM);
+        params.with_sample_rate(44100);
+        params.with_channels(Channels::FRONT_LEFT | Channels::FRONT_RIGHT);
+        
+        let opts = DecoderOptions::default();
+        let decoder = CustomPcmDecoder::try_new(&params, &opts);
+        
+        assert!(decoder.is_ok());
+    }
+    
+    #[test]
+    fn test_decode_packet() {
+        // Set up decoder
+        let mut params = CodecParameters::new();
+        params.for_codec(CODEC_TYPE_CUSTOM_PCM);
+        params.with_sample_rate(44100);
+        params.with_channels(Channels::FRONT_LEFT | Channels::FRONT_RIGHT);
+        
+        let opts = DecoderOptions::default();
+        let mut decoder = CustomPcmDecoder::try_new(&params, &opts).unwrap();
+        
+        // Create test packet
+        let test_data = vec![0u8; 4096];
+        let packet = Packet::new_from_slice(0, 0, 1024, &test_data);
+        
+        // Decode
+        let result = decoder.decode(&packet);
+        assert!(result.is_ok());
+    }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Format Detection" icon="magnifying-glass" href="/guides/format-detection">
+    Learn how to register custom formats
+  </Card>
+  
+  <Card title="API Reference" icon="book" href="/api/codecs/aac">
+    Full codec API documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,153 @@
+---
+title: 'Core API Overview'
+description: 'Overview of Symphonia core APIs for audio decoding and media demuxing'
+---
+
+## Introduction
+
+The Symphonia core API provides the fundamental building blocks for audio decoding and media format demuxing in pure Rust. The core consists of several key components that work together to detect, read, and decode audio files.
+
+## Core Components
+
+### Probe
+
+The [`Probe`](/api/core/probe) is responsible for auto-detecting media formats from arbitrary streams. It uses format descriptors and byte markers to identify the container format and instantiate the appropriate reader.
+
+**Key features:**
+- Automatic format detection from stream data
+- Support for format hints (file extensions, MIME types)
+- Progressive metadata discovery
+- Registration-based format support
+
+### FormatReader
+
+The [`FormatReader`](/api/core/format-reader) trait defines the interface for container demuxers. It provides methods to read tracks, extract packets, seek within the media, and access metadata.
+
+**Key features:**
+- Track enumeration and selection
+- Packet extraction from interleaved streams
+- Sample-accurate seeking with multiple modes
+- Metadata and cue point access
+- Gapless playback support
+
+### Decoder
+
+The [`Decoder`](/api/core/decoder) trait implements codec decode algorithms. Decoders consume packets from a FormatReader and produce decoded audio buffers.
+
+**Key features:**
+- Codec-specific decoding implementations
+- Audio buffer generation
+- Verification and validation support
+- Reset capability for seeking
+
+### CodecRegistry
+
+The [`CodecRegistry`](/api/core/codec-registry) manages codec registration and instantiation. It maps codec types to decoder implementations and provides a factory interface.
+
+**Key features:**
+- Dynamic codec registration
+- Codec descriptor queries
+- Decoder instantiation
+- Multi-codec support
+
+## Typical Workflow
+
+```rust
+use symphonia::core::codecs::{CodecRegistry, DecoderOptions};
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use symphonia::default::{get_codecs, get_probe};
+use std::fs::File;
+
+// 1. Open the media source
+let file = File::open("audio.flac")?;
+let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+// 2. Create a hint to help the probe
+let mut hint = Hint::new();
+hint.with_extension("flac");
+
+// 3. Probe the format
+let probe = get_probe();
+let format_opts = FormatOptions::default();
+let metadata_opts = MetadataOptions::default();
+let probed = probe.format(&hint, mss, &format_opts, &metadata_opts)?;
+
+// 4. Get the format reader
+let mut format = probed.format;
+
+// 5. Select a track to decode
+let track = format.default_track().unwrap();
+
+// 6. Create a decoder for the track
+let codec_registry = get_codecs();
+let decoder_opts = DecoderOptions::default();
+let mut decoder = codec_registry.make(&track.codec_params, &decoder_opts)?;
+
+// 7. Decode packets
+loop {
+    let packet = match format.next_packet() {
+        Ok(packet) => packet,
+        Err(_) => break,
+    };
+
+    // Only decode packets from the selected track
+    if packet.track_id() != track.id {
+        continue;
+    }
+
+    // Decode the packet into audio samples
+    let decoded = decoder.decode(&packet)?;
+    
+    // Process the decoded audio...
+}
+```
+
+## Type Hierarchy
+
+### Format Detection Flow
+
+1. **Hint** - Optional format hints (extension, MIME type)
+2. **Probe** - Scans stream for format markers
+3. **Descriptor** - Format metadata and instantiation function
+4. **FormatReader** - Instantiated demuxer for the detected format
+
+### Decoding Flow
+
+1. **Track** - Represents an encoded audio stream with codec parameters
+2. **CodecParameters** - Describes codec configuration and properties
+3. **CodecRegistry** - Maps codec types to decoder implementations
+4. **Decoder** - Decodes packets into audio buffers
+5. **Packet** - Encoded data from the format reader
+6. **AudioBuffer** - Decoded PCM audio samples
+
+## Related Types
+
+### Core Data Structures
+
+- **Track** - Describes an independently coded media bitstream
+- **Packet** - Contains a discrete amount of encoded data
+- **CodecParameters** - Codec configuration and stream properties
+- **CodecType** - Unique identifier for codecs
+- **Cue** - Designated point of time within a media stream
+
+### Configuration
+
+- **FormatOptions** - Options for format readers
+- **DecoderOptions** - Options for decoders  
+- **MetadataOptions** - Options for metadata parsing
+
+### Seeking
+
+- **SeekTo** - Specifies a position to seek to
+- **SeekedTo** - Result of a seek operation
+- **SeekMode** - Precision level for seeking
+
+## See Also
+
+- [Probe API](/api/core/probe) - Format detection and probing
+- [FormatReader API](/api/core/format-reader) - Container demuxing
+- [Decoder API](/api/core/decoder) - Audio decoding
+- [CodecRegistry API](/api/core/codec-registry) - Codec management

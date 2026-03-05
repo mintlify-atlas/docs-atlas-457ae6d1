@@ -1,0 +1,380 @@
+---
+title: Gapless Playback
+description: Enable seamless transitions between audio tracks without silence or gaps
+icon: wave-square
+---
+
+Gapless playback removes encoder-added silence at the beginning and end of audio tracks, enabling seamless transitions between tracks. This is essential for albums, DJ mixes, and audiobooks.
+
+## What is Gapless Playback?
+
+Most lossy audio codecs add padding frames at the start (encoder delay) and end of the audio stream due to how the encoding algorithm works. This creates unwanted silence between tracks.
+
+<AccordionGroup>
+  <Accordion title="Encoder Delay">
+    **Encoder delay** refers to silent frames added at the beginning of an encoded stream. This happens because encoders need "look-ahead" samples to initialize their internal state.
+
+    For example:
+    - MP3: Typically 576 or 1152 samples of delay
+    - AAC: Usually 1024 or 2112 samples
+    - Vorbis: Variable delay depending on codec settings
+  </Accordion>
+
+  <Accordion title="Encoder Padding">
+    **Padding** refers to silent frames added at the end of a stream. This occurs because encoders produce output in fixed-size blocks, and the last block needs to be padded if the original audio doesn't align perfectly.
+
+    Example:
+    - Original audio: 100,000 samples
+    - Codec block size: 1152 samples
+    - Last block needs: 1152 - (100000 % 1152) = 768 padding samples
+  </Accordion>
+
+  <Accordion title="Without Gapless Playback">
+    When playing tracks back-to-back without gapless support:
+    
+    ```
+    Track 1: [delay][actual audio][padding]
+                                        ^ Gap here!
+    Track 2:                  [delay][actual audio][padding]
+    ```
+    
+    You hear: silence → audio → silence → silence → audio
+  </Accordion>
+
+  <Accordion title="With Gapless Playback">
+    With gapless playback enabled:
+    
+    ```
+    Track 1: [delay][actual audio][padding]
+                    ^ Trim delay      ^ Trim padding
+    Track 2:       [delay][actual audio][padding]
+                   ^ Trim delay      ^ Trim padding
+    ```
+    
+    You hear: audio → audio (seamless!)
+  </Accordion>
+</AccordionGroup>
+
+## Enabling Gapless Playback
+
+Enable gapless support when creating the format reader.
+
+<Steps>
+  <Step title="Configure FormatOptions">
+    Set `enable_gapless` to `true`:
+
+    ```rust
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
+
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let hint = Hint::new();
+
+    // Enable gapless playback
+    let fmt_opts = FormatOptions {
+        enable_gapless: true,
+        ..Default::default()
+    };
+
+    let meta_opts: MetadataOptions = Default::default();
+
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &fmt_opts, &meta_opts)?;
+    ```
+  </Step>
+
+  <Step title="Decode with trim information">
+    When gapless is enabled, packets contain trim information:
+
+    ```rust
+    use symphonia::core::audio::Signal;
+
+    loop {
+        let packet = format.next_packet()?;
+        
+        if packet.track_id() != track_id {
+            continue;
+        }
+
+        // Check trim information
+        let trim_start = packet.trim_start();
+        let trim_end = packet.trim_end();
+        
+        println!("Trim start: {}, end: {}", trim_start, trim_end);
+
+        let decoded = decoder.decode(&packet)?;
+        
+        // Process decoded audio (trimming is reflected in timestamps)
+        // ...
+    }
+    ```
+  </Step>
+
+  <Step title="Apply trimming (optional)">
+    The decoder handles trimming automatically, but you can also trim manually:
+
+    ```rust
+    use symphonia::core::audio::{AudioBufferRef, Signal};
+
+    let decoded = decoder.decode(&packet)?;
+    let trim_start = packet.trim_start();
+    let trim_end = packet.trim_end();
+
+    match decoded {
+        AudioBufferRef::F32(mut buf) => {
+            // Manual trim if needed
+            if trim_start > 0 || trim_end > 0 {
+                buf.trim(trim_start as usize, trim_end as usize);
+            }
+            
+            // Process trimmed audio
+            let samples = buf.chan(0);
+        }
+        _ => { /* Handle other formats */ }
+    }
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  When gapless is enabled, packet timestamps and durations automatically account for trimming. You typically don't need to handle trim values manually.
+</Tip>
+
+## How Gapless Affects Timestamps
+
+With gapless playback enabled, timestamps and durations change:
+
+### Without Gapless
+
+```rust
+// Gapless disabled
+let fmt_opts = FormatOptions {
+    enable_gapless: false,
+    ..Default::default()
+};
+
+// First packet includes delay
+let packet = format.next_packet()?;
+assert_eq!(packet.ts(), 0);           // Timestamp starts at 0
+assert_eq!(packet.dur(), 1152);       // Full packet duration
+assert_eq!(packet.trim_start(), 0);   // No trim info
+assert_eq!(packet.trim_end(), 0);
+```
+
+### With Gapless
+
+```rust
+// Gapless enabled
+let fmt_opts = FormatOptions {
+    enable_gapless: true,
+    ..Default::default()
+};
+
+// First packet - delay is trimmed
+let packet = format.next_packet()?;
+assert_eq!(packet.ts(), 0);             // Still starts at 0
+assert_eq!(packet.dur(), 1152 - 576);   // Duration reduced by delay
+assert_eq!(packet.trim_start(), 576);   // Trim 576 samples
+assert_eq!(packet.trim_end(), 0);       // No end trim yet
+
+// Last packet - padding is trimmed
+let packet = format.next_packet()?;
+assert_eq!(packet.trim_start(), 0);     // No start trim
+assert_eq!(packet.trim_end(), 768);     // Trim 768 padding samples
+```
+
+## Codec Support
+
+Not all codecs support gapless playback. Support depends on whether the format stores delay/padding information.
+
+<CardGroup cols={3}>
+  <Card title="Full Support" icon="circle-check">
+    **MP3**
+    - Via LAME header
+    - Delay and padding values stored
+    
+    **AAC/ALAC**
+    - Via iTunes metadata in MP4
+    - Explicit sample counts
+    
+    **FLAC**
+    - Native gapless support
+    - Sample-accurate
+  </Card>
+  
+  <Card title="Partial Support" icon="circle-half-stroke">
+    **Vorbis**
+    - Supported in OGG containers
+    - May require manual config
+    
+    **Opus**
+    - Gapless by design
+    - Pre-skip in header
+  </Card>
+  
+  <Card title="No Support" icon="circle-xmark">
+    **Legacy MP3**
+    - Without LAME header
+    - No delay info stored
+    
+    **Some AAC**
+    - Without iTunes atoms
+    - Container dependent
+  </Card>
+</CardGroup>
+
+### Checking Codec Parameters
+
+You can check if gapless information is available:
+
+```rust
+let track = format.default_track().unwrap();
+let params = &track.codec_params;
+
+// Check for delay and padding info
+if let Some(delay) = params.delay {
+    println!("Encoder delay: {} frames", delay);
+}
+
+if let Some(padding) = params.padding {
+    println!("Encoder padding: {} frames", padding);
+}
+
+// Check total frame count (for gapless end detection)
+if let Some(n_frames) = params.n_frames {
+    println!("Total frames: {}", n_frames);
+}
+```
+
+## Working Example
+
+Here's a complete example that demonstrates gapless playback:
+
+```rust
+use std::fs::File;
+use symphonia::core::audio::{AudioBufferRef, SampleBuffer, Signal};
+use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::errors::Error;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let file = File::open("track.mp3")?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    
+    // Enable gapless playback
+    let fmt_opts = FormatOptions {
+        enable_gapless: true,
+        ..Default::default()
+    };
+    
+    let probed = symphonia::default::get_probe()
+        .format(&Hint::new(), mss, &fmt_opts, &MetadataOptions::default())?;
+    
+    let mut format = probed.format;
+    let track = format.default_track().unwrap();
+    
+    // Show gapless info
+    let params = &track.codec_params;
+    if let Some(delay) = params.delay {
+        println!("Encoder delay: {} samples", delay);
+    }
+    if let Some(padding) = params.padding {
+        println!("Encoder padding: {} samples", padding);
+    }
+    
+    // Create decoder
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())?;
+    
+    let track_id = track.id;
+    let mut sample_buf = None;
+    let mut audio_samples = 0;
+    let mut total_packets = 0;
+    let mut trimmed_start = 0;
+    let mut trimmed_end = 0;
+    
+    // Decode loop
+    loop {
+        let packet = match format.next_packet() {
+            Ok(p) => p,
+            Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(e) => return Err(e.into()),
+        };
+        
+        if packet.track_id() != track_id {
+            continue;
+        }
+        
+        total_packets += 1;
+        trimmed_start += packet.trim_start();
+        trimmed_end += packet.trim_end();
+        
+        match decoder.decode(&packet) {
+            Ok(decoded) => {
+                if sample_buf.is_none() {
+                    let spec = *decoded.spec();
+                    let duration = decoded.capacity() as u64;
+                    sample_buf = Some(SampleBuffer::<f32>::new(duration, spec));
+                }
+                
+                if let Some(buf) = &mut sample_buf {
+                    buf.copy_interleaved_ref(decoded);
+                    audio_samples += buf.len();
+                }
+            }
+            Err(Error::DecodeError(_)) => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    
+    println!("\n=== Gapless Playback Summary ===");
+    println!("Total packets: {}", total_packets);
+    println!("Samples decoded: {}", audio_samples);
+    println!("Samples trimmed from start: {}", trimmed_start);
+    println!("Samples trimmed from end: {}", trimmed_end);
+    println!("Net samples: {}", audio_samples - trimmed_start as usize - trimmed_end as usize);
+    
+    Ok(())
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Always Enable for Music" icon="music">
+    For music players and album playback, always enable gapless playback to provide the best listening experience.
+  </Card>
+  
+  <Card title="Check Codec Support" icon="magnifying-glass">
+    Verify that delay and padding information is available in `CodecParameters` before assuming gapless works.
+  </Card>
+  
+  <Card title="Handle Missing Info" icon="triangle-exclamation">
+    Some files may not have gapless metadata. Gracefully degrade to normal playback.
+  </Card>
+  
+  <Card title="Trust Timestamps" icon="clock">
+    When gapless is enabled, packet timestamps account for trimming. Use them for seeking and sync.
+  </Card>
+</CardGroup>
+
+<Warning>
+  Enabling gapless playback may slightly increase processing overhead as the format reader must calculate trim values for each packet.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Decoding Audio" icon="music" href="/guides/decoding-audio">
+    Learn how to decode audio samples
+  </Card>
+  
+  <Card title="Format Detection" icon="magnifying-glass" href="/guides/format-detection">
+    Detect and probe audio formats
+  </Card>
+</CardGroup>

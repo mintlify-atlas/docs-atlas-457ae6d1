@@ -1,0 +1,265 @@
+---
+title: MP3 Codec
+description: MPEG-1/2 Audio Layer I, II, and III decoder and demuxer
+---
+
+## Overview
+
+Symphonia provides a complete pure Rust implementation of the MPEG Audio (MP1, MP2, MP3) decoder and demuxer. The implementation supports all three MPEG audio layers with high quality decoding.
+
+## Feature Flags
+
+The MP3 bundle supports granular feature flags for each layer:
+
+```toml
+[dependencies]
+# Enable all MPEG audio layers (default)
+symphonia = { version = "0.5", features = ["mp1", "mp2", "mp3"] }
+
+# Or use the mpa shorthand for all layers
+symphonia = { version = "0.5", features = ["mpa"] }
+
+# Enable only MP3 (Layer III)
+symphonia = { version = "0.5", features = ["mp3"] }
+```
+
+Or use the standalone crate:
+
+```toml
+[dependencies]
+symphonia-bundle-mp3 = { version = "0.5", features = ["mp1", "mp2", "mp3"] }
+```
+
+### Available Features
+
+- `mp1` - MPEG Audio Layer I
+- `mp2` - MPEG Audio Layer II  
+- `mp3` - MPEG Audio Layer III
+
+By default, the standalone crate enables all three features.
+
+## Status
+
+**Status**: Excellent
+
+- Decoding: Fully supported for all layers
+- Gapless Playback: Yes (with LAME headers)
+- Streaming: Yes
+
+## Codec Type
+
+```rust
+use symphonia::core::codecs::CODEC_TYPE_MP3;
+use symphonia::core::codecs::CODEC_TYPE_MP2;
+use symphonia::core::codecs::CODEC_TYPE_MP1;
+```
+
+## Decoder
+
+The MPEG Audio decoder is implemented by the `MpaDecoder` struct (formerly `Mp3Decoder`):
+
+```rust
+use symphonia_bundle_mp3::MpaDecoder;
+use symphonia::core::codecs::{Decoder, DecoderOptions};
+
+// Create decoder from codec parameters
+let mut decoder = MpaDecoder::try_new(&codec_params, &DecoderOptions::default())?;
+
+// Decode a packet
+let decoded = decoder.decode(&packet)?;
+```
+
+## Format Reader
+
+For raw MPEG audio files, use the `MpaReader` (formerly `Mp3Reader`):
+
+```rust
+use symphonia_bundle_mp3::MpaReader;
+use symphonia::core::formats::{FormatReader, FormatOptions};
+use symphonia::core::io::MediaSourceStream;
+
+let mss = MediaSourceStream::new(source, Default::default());
+let mut reader = MpaReader::try_new(mss, &FormatOptions::default())?;
+
+// Read packets
+while let Ok(packet) = reader.next_packet() {
+    // Decode packet...
+}
+```
+
+## Supported Variants
+
+### Layer I (MP1)
+
+- MPEG-1 Layer I
+- MPEG-2 Layer I
+- MPEG-2.5 Layer I
+- Bitrates: 32-448 kbps
+
+### Layer II (MP2)
+
+- MPEG-1 Layer II
+- MPEG-2 Layer II  
+- MPEG-2.5 Layer II
+- Bitrates: 8-384 kbps
+- Commonly used in broadcast applications
+
+### Layer III (MP3)
+
+- MPEG-1 Layer III
+- MPEG-2 Layer III
+- MPEG-2.5 Layer III  
+- Bitrates: 8-320 kbps
+- Variable Bitrate (VBR)
+- Constant Bitrate (CBR)
+- Average Bitrate (ABR)
+
+## Sample Rates
+
+**MPEG-1:**
+- 32 kHz
+- 44.1 kHz
+- 48 kHz
+
+**MPEG-2:**
+- 16 kHz
+- 22.05 kHz
+- 24 kHz
+
+**MPEG-2.5:**
+- 8 kHz
+- 11.025 kHz
+- 12 kHz
+
+## Channel Modes
+
+- Mono
+- Stereo
+- Joint Stereo (intensity stereo and/or M/S stereo)
+- Dual Channel
+
+## Gapless Playback
+
+Supports gapless playback with LAME encoder headers:
+
+```rust
+use symphonia::core::formats::Packet;
+
+// Decoder automatically handles encoder delay and padding
+let decoded = decoder.decode(&packet)?;
+
+// Access trim information from the packet
+let start_trim = packet.trim_start();
+let end_trim = packet.trim_end();
+```
+
+## Metadata Support
+
+Supports ID3v1, ID3v2, and APEv2 tags:
+
+```rust
+use symphonia::core::meta::MetadataOptions;
+
+let probed = symphonia::default::get_probe()
+    .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())?;
+
+// Access metadata
+if let Some(metadata_rev) = probed.format.metadata().current() {
+    for tag in metadata_rev.tags() {
+        println!("{}: {}", tag.key, tag.value);
+    }
+}
+
+// Access embedded images (e.g., album art)
+for visual in metadata_rev.visuals() {
+    println!("Image type: {:?}", visual.usage);
+    println!("Image format: {:?}", visual.media_type);
+    // visual.data contains the image bytes
+}
+```
+
+## Usage Example
+
+```rust
+use symphonia::core::codecs::{CODEC_TYPE_MP3, DecoderOptions};
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+
+fn decode_mp3_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Open the media source
+    let file = Box::new(File::open(path)?);
+    let mss = MediaSourceStream::new(file, Default::default());
+
+    // Create a hint
+    let mut hint = Hint::new();
+    hint.with_extension("mp3");
+
+    // Probe the media source
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())?;
+
+    let mut format = probed.format;
+    let track = &format.tracks()[0];
+
+    println!("Codec: {:?}", track.codec_params.codec);
+    println!("Sample Rate: {:?}", track.codec_params.sample_rate);
+    println!("Channels: {:?}", track.codec_params.channels);
+    println!("Bitrate: {:?}", track.codec_params.max_bitrate);
+
+    // Create the decoder
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())?;
+
+    // Decode packets
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(_) => break,
+        };
+
+        let decoded = decoder.decode(&packet)?;
+        // Process decoded audio...
+    }
+
+    Ok(())
+}
+```
+
+## Seeking Support
+
+Supports seeking with and without seeking tables:
+
+```rust
+use symphonia::core::formats::{SeekMode, SeekTo};
+
+// Seek to 30 seconds
+let seek_to = SeekTo::Time { time: 30.0, track_id: None };
+format.seek(SeekMode::Accurate, seek_to)?;
+```
+
+## Performance
+
+- Pure Rust implementation with no unsafe code
+- Optimized synthesis filter bank
+- Efficient Huffman decoding
+- Memory efficient streaming decoder
+
+## Limitations
+
+- Free format bitstreams are not supported
+- Some exotic non-standard variations may not decode correctly
+
+## Documentation
+
+- [crates.io](https://crates.io/crates/symphonia-bundle-mp3)
+- [API Documentation](https://docs.rs/symphonia-bundle-mp3)
+- [MPEG Audio Specification (ISO/IEC 11172-3)](https://www.iso.org/standard/22412.html)
+
+## See Also
+
+- [Core Concepts](/api/core/overview)
+- [Decoding Guide](/guides/decoding-audio)
+- [Metadata](/guides/working-with-metadata)

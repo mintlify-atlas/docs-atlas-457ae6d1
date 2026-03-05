@@ -1,0 +1,372 @@
+---
+title: MediaSource
+description: Trait for readable and seekable media sources
+---
+
+`MediaSource` is a composite trait combining `std::io::Read` and `std::io::Seek` that represents a source of media data for Symphonia.
+
+## Overview
+
+MediaSource provides a unified interface for reading media from files, network streams, or any other data source. Despite requiring `Seek`, seeking is an optional capability that can be queried at runtime.
+
+## Trait Definition
+
+```rust
+pub trait MediaSource: io::Read + io::Seek + Send + Sync {
+    fn is_seekable(&self) -> bool;
+    fn byte_len(&self) -> Option<u64>;
+}
+```
+
+## Required Methods
+
+### `is_seekable`
+
+```rust
+fn is_seekable(&self) -> bool
+```
+
+Returns whether the source supports seeking. This may be an expensive operation.
+
+<Warning>
+For file-based sources, this queries the underlying file descriptor metadata and may involve system calls. Cache the result if used frequently.
+</Warning>
+
+**Example:**
+
+```rust
+use symphonia::core::io::MediaSource;
+use std::fs::File;
+
+let file = File::open("audio.mp3")?;
+if file.is_seekable() {
+    println!("Can seek in this file");
+}
+```
+
+### `byte_len`
+
+```rust
+fn byte_len(&self) -> Option<u64>
+```
+
+Returns the length of the source in bytes, if available. Returns `None` for streams of unknown length.
+
+**Example:**
+
+```rust
+if let Some(len) = source.byte_len() {
+    println!("Source is {} bytes", len);
+}
+```
+
+## Standard Implementations
+
+### File
+
+`MediaSource` is implemented for `std::fs::File`.
+
+```rust
+use std::fs::File;
+use symphonia::core::io::MediaSourceStream;
+
+let file = File::open("audio.flac")?;
+let mss = MediaSourceStream::new(Box::new(file), Default::default());
+```
+
+**Implementation Details:**
+- `is_seekable()`: Returns `true` if the file is a regular file (not a FIFO, device, etc.)
+- `byte_len()`: Returns the file size from metadata
+
+### Cursor
+
+`MediaSource` is implemented for `std::io::Cursor<T>` where `T: AsRef<[u8]>`.
+
+```rust
+use std::io::Cursor;
+use symphonia::core::io::MediaSourceStream;
+
+let data: Vec<u8> = load_audio_data();
+let cursor = Cursor::new(data);
+let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+```
+
+**Implementation Details:**
+- `is_seekable()`: Always returns `true`
+- `byte_len()`: Returns the length of the underlying buffer
+
+## ReadOnlySource
+
+For sources that only implement `std::io::Read`, use `ReadOnlySource` to wrap them in an unseekable MediaSource.
+
+```rust
+pub struct ReadOnlySource<R: io::Read>
+```
+
+### Creating ReadOnlySource
+
+#### `new`
+
+```rust
+pub fn new(inner: R) -> Self
+```
+
+Wraps a reader in a ReadOnlySource.
+
+<ParamField path="inner" type="R: io::Read" required>
+  The reader to wrap
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::io::{ReadOnlySource, MediaSourceStream};
+use std::io;
+
+// Wrap stdin as a media source
+let stdin_source = ReadOnlySource::new(io::stdin());
+let mss = MediaSourceStream::new(Box::new(stdin_source), Default::default());
+```
+
+### ReadOnlySource Methods
+
+#### `get_ref`
+
+```rust
+pub fn get_ref(&self) -> &R
+```
+
+Gets an immutable reference to the underlying reader.
+
+#### `get_mut`
+
+```rust
+pub fn get_mut(&mut self) -> &mut R
+```
+
+Gets a mutable reference to the underlying reader.
+
+#### `into_inner`
+
+```rust
+pub fn into_inner(self) -> R
+```
+
+Unwraps the ReadOnlySource, returning the underlying reader.
+
+## Usage Patterns
+
+### File-Based Media
+
+```rust
+use std::fs::File;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::probe::Hint;
+
+fn open_media_file(path: &str) -> Result<MediaSourceStream, Box<dyn std::error::Error>> {
+    let file = File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    Ok(mss)
+}
+```
+
+### Network Streaming
+
+```rust
+use symphonia::core::io::{ReadOnlySource, MediaSourceStream};
+use std::io::Read;
+
+fn stream_from_network<R: Read + Send + Sync + 'static>(
+    stream: R
+) -> MediaSourceStream {
+    let source = ReadOnlySource::new(stream);
+    MediaSourceStream::new(Box::new(source), Default::default())
+}
+```
+
+### Standard Input
+
+```rust
+use symphonia::core::io::{ReadOnlySource, MediaSourceStream};
+use std::io;
+
+fn read_from_stdin() -> MediaSourceStream {
+    let stdin = io::stdin();
+    let source = ReadOnlySource::new(stdin);
+    MediaSourceStream::new(Box::new(source), Default::default())
+}
+```
+
+### In-Memory Buffer
+
+```rust
+use std::io::Cursor;
+use symphonia::core::io::MediaSourceStream;
+
+fn from_memory(data: Vec<u8>) -> MediaSourceStream {
+    let cursor = Cursor::new(data);
+    MediaSourceStream::new(Box::new(cursor), Default::default())
+}
+```
+
+## Type Erasure Pattern
+
+MediaSource uses type erasure to allow different source types to be used interchangeably:
+
+```rust
+use symphonia::core::io::MediaSourceStream;
+use std::io::Cursor;
+use std::fs::File;
+
+fn create_source(use_file: bool) -> Box<dyn MediaSource> {
+    if use_file {
+        Box::new(File::open("audio.mp3").unwrap())
+    } else {
+        let data = vec![0u8; 1024];
+        Box::new(Cursor::new(data))
+    }
+}
+
+let source = create_source(true);
+let mss = MediaSourceStream::new(source, Default::default());
+```
+
+## Implementing MediaSource
+
+To implement MediaSource for a custom type, implement `Read`, `Seek`, and the MediaSource methods:
+
+```rust
+use symphonia::core::io::MediaSource;
+use std::io::{self, Read, Seek, SeekFrom};
+
+struct CustomSource {
+    data: Vec<u8>,
+    pos: usize,
+}
+
+impl Read for CustomSource {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let remaining = &self.data[self.pos..];
+        let to_read = buf.len().min(remaining.len());
+        buf[..to_read].copy_from_slice(&remaining[..to_read]);
+        self.pos += to_read;
+        Ok(to_read)
+    }
+}
+
+impl Seek for CustomSource {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let new_pos = match pos {
+            SeekFrom::Start(n) => n as i64,
+            SeekFrom::Current(n) => self.pos as i64 + n,
+            SeekFrom::End(n) => self.data.len() as i64 + n,
+        };
+        
+        if new_pos < 0 || new_pos > self.data.len() as i64 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid seek"));
+        }
+        
+        self.pos = new_pos as usize;
+        Ok(self.pos as u64)
+    }
+}
+
+impl MediaSource for CustomSource {
+    fn is_seekable(&self) -> bool {
+        true
+    }
+    
+    fn byte_len(&self) -> Option<u64> {
+        Some(self.data.len() as u64)
+    }
+}
+```
+
+## Seeking Behavior
+
+### Seekable Sources
+
+When a source is seekable, format readers can:
+- Skip to specific positions for initialization
+- Implement efficient seeking to timestamps
+- Read metadata from specific file locations
+
+```rust
+let file = File::open("audio.mp3")?;
+if file.is_seekable() {
+    // Format reader can perform optimized seeking
+}
+```
+
+### Non-Seekable Sources
+
+When a source is not seekable:
+- Format readers must process data sequentially
+- Seeking to timestamps may not be available
+- Some formats may not be detectable
+
+```rust
+use symphonia::core::io::ReadOnlySource;
+
+let stream = get_network_stream();
+let source = ReadOnlySource::new(stream);
+// source.is_seekable() returns false
+```
+
+## Performance Considerations
+
+<Note>
+Both `is_seekable()` and `byte_len()` may involve system calls for file-based sources. Cache these values when possible:
+</Note>
+
+```rust
+struct CachedMediaInfo {
+    is_seekable: bool,
+    byte_len: Option<u64>,
+}
+
+fn get_media_info(source: &dyn MediaSource) -> CachedMediaInfo {
+    CachedMediaInfo {
+        is_seekable: source.is_seekable(),
+        byte_len: source.byte_len(),
+    }
+}
+```
+
+## Complete Example
+
+```rust
+use symphonia::core::io::{MediaSource, MediaSourceStream, ReadOnlySource};
+use symphonia::core::probe::Hint;
+use std::fs::File;
+use std::io;
+
+fn open_audio_source(path: Option<&str>) -> Result<MediaSourceStream, Box<dyn std::error::Error>> {
+    let source: Box<dyn MediaSource> = if let Some(path) = path {
+        // Open file
+        Box::new(File::open(path)?)
+    } else {
+        // Use stdin
+        Box::new(ReadOnlySource::new(io::stdin()))
+    };
+    
+    // Check source capabilities
+    if source.is_seekable() {
+        if let Some(len) = source.byte_len() {
+            println!("Opened seekable source of {} bytes", len);
+        }
+    } else {
+        println!("Opened non-seekable stream");
+    }
+    
+    // Create media source stream
+    let mss = MediaSourceStream::new(source, Default::default());
+    
+    Ok(mss)
+}
+```
+
+## See Also
+
+- [MediaSourceStream](/api/io/media-source-stream) - Buffered reader for MediaSource
+- [Getting Started](/quickstart) - Basic usage guide

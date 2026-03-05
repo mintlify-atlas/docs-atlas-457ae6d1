@@ -1,0 +1,192 @@
+---
+title: Installation
+description: Add Symphonia to your Rust project and configure feature flags for the formats and codecs you need.
+---
+
+Symphonia is distributed as a Rust crate and can be added to your project using Cargo.
+
+## Basic Installation
+
+Add Symphonia to your `Cargo.toml`:
+
+<CodeGroup>
+
+```toml Default Features
+[dependencies]
+symphonia = "0.5"
+```
+
+```toml All Features
+[dependencies]
+symphonia = { version = "0.5", features = ["all"] }
+```
+
+```toml Minimal (No Default Features)
+[dependencies]
+symphonia = { version = "0.5", default-features = false }
+```
+
+</CodeGroup>
+
+<Note>
+  By default, Symphonia only enables support for **royalty-free open standard** formats and codecs (OGG, MKV/WebM, Wave, ADPCM, FLAC, PCM, Vorbis).
+</Note>
+
+## Feature Flags
+
+Symphonia uses feature flags to enable specific codecs and formats. This keeps your build lean by only including what you need.
+
+### Convenience Features
+
+These features enable multiple codecs or formats at once:
+
+| Feature Flag | Description | Includes |
+|--------------|-------------|----------|
+| `all` | Enable all supported codecs and formats | `all-codecs` + `all-formats` |
+| `all-codecs` | Enable all supported audio codecs | `aac`, `adpcm`, `alac`, `flac`, `mp1`, `mp2`, `mp3`, `pcm`, `vorbis` |
+| `all-formats` | Enable all supported container formats | `caf`, `isomp4`, `mkv`, `ogg`, `aiff`, `wav` |
+| `mpa` | Enable all MPEG audio codecs | `mp1`, `mp2`, `mp3` |
+
+### Codec Features
+
+Individual codec support:
+
+| Feature Flag | Codec | Status | Default | Gapless |
+|--------------|-------|--------|---------|--------|
+| `aac` | AAC-LC | Great | No | No |
+| `adpcm` | ADPCM | Good | Yes | Yes |
+| `alac` | Apple Lossless (ALAC) | Great | No | Yes |
+| `flac` | FLAC | Excellent | Yes | Yes |
+| `mp1` | MPEG-1 Audio Layer I | Great | No | No |
+| `mp2` | MPEG-1 Audio Layer II | Great | No | No |
+| `mp3` | MPEG-1 Audio Layer III | Excellent | No | Yes |
+| `pcm` | PCM (uncompressed) | Excellent | Yes | Yes |
+| `vorbis` | Vorbis | Excellent | Yes | Yes |
+
+### Format Features
+
+Individual container format support:
+
+| Feature Flag | Format | Status | Default | Gapless |
+|--------------|--------|--------|---------|--------|
+| `aiff` | Audio Interchange File Format | Great | No | Yes |
+| `caf` | Core Audio Format | Good | No | No |
+| `isomp4` | ISO/MP4, M4A, M4V | Great | No | No |
+| `mkv` | Matroska, WebM | Good | Yes | No |
+| `ogg` | OGG | Great | Yes | Yes |
+| `wav` | WAVE | Excellent | Yes | Yes |
+
+### Optimization Features
+
+SIMD optimizations are **not** enabled by default:
+
+| Feature Flag | Description | Default |
+|--------------|-------------|--------|
+| `opt-simd` | Enable all SIMD optimizations | No |
+| `opt-simd-sse` | Enable SSE optimizations | No |
+| `opt-simd-avx` | Enable AVX optimizations | No |
+| `opt-simd-neon` | Enable Neon optimizations (ARM) | No |
+
+<Warning>
+  Enabling any SIMD support feature will add the `rustfft` dependency to your project.
+</Warning>
+
+## Common Configuration Examples
+
+### MP3 Player
+
+For a simple MP3 player:
+
+```toml Cargo.toml
+[dependencies]
+symphonia = { version = "0.5", features = ["mp3"] }
+```
+
+### Universal Audio Player
+
+For an application that supports most common audio formats:
+
+```toml Cargo.toml
+[dependencies]
+symphonia = { version = "0.5", features = [
+    "aac",      # AAC/M4A files
+    "alac",     # Apple Lossless
+    "flac",     # FLAC
+    "isomp4",   # MP4/M4A container
+    "mp3",      # MP3
+    "vorbis",   # OGG Vorbis
+    "wav",      # WAV (already default)
+] }
+```
+
+### Video File Audio Extraction
+
+For extracting audio from video containers:
+
+```toml Cargo.toml
+[dependencies]
+symphonia = { version = "0.5", features = [
+    "isomp4",   # MP4/M4V files
+    "mkv",      # MKV/WebM files
+    "aac",      # AAC codec
+    "mp3",      # MP3 codec
+    "vorbis",   # Vorbis codec
+] }
+```
+
+### High-Performance Audio Processing
+
+With SIMD optimizations enabled:
+
+```toml Cargo.toml
+[dependencies]
+symphonia = { version = "0.5", features = [
+    "all",
+    "opt-simd",  # Enable all SIMD optimizations
+] }
+```
+
+### Minimal Build (Custom Features)
+
+For embedded or size-constrained applications:
+
+```toml Cargo.toml
+[dependencies]
+symphonia = { 
+    version = "0.5", 
+    default-features = false,
+    features = ["wav", "pcm"]  # Only WAV + PCM support
+}
+```
+
+## Requirements
+
+- **Rust Version**: 1.53.0 or later
+- **Dependencies**: Minimal - Symphonia has very few dependencies by default
+- **Platform**: Cross-platform (Linux, macOS, Windows, and more)
+
+## Verifying Installation
+
+After adding Symphonia to your `Cargo.toml`, verify it's working by building your project:
+
+```bash Terminal
+cargo build
+```
+
+You can also check which features are enabled:
+
+```bash Terminal
+cargo tree -e features | grep symphonia
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+    Build your first audio decoder with Symphonia
+  </Card>
+  
+  <Card title="API Documentation" icon="book" href="https://docs.rs/symphonia">
+    Explore the complete API reference
+  </Card>
+</CardGroup>

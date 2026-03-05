@@ -1,0 +1,469 @@
+---
+title: 'CodecRegistry'
+description: 'Codec registration and decoder instantiation'
+---
+
+## Overview
+
+The `CodecRegistry` manages codec registration and provides a factory interface for instantiating decoders. It maps codec types to their implementations and allows dynamic registration of decoder support.
+
+## CodecRegistry
+
+### Definition
+
+```rust
+pub struct CodecRegistry {
+    codecs: HashMap<CodecType, CodecDescriptor>,
+}
+```
+
+A registry that maps codec types to decoder implementations.
+
+### Methods
+
+#### new
+
+```rust
+pub fn new() -> Self
+```
+
+Instantiate a new, empty `CodecRegistry`.
+
+<ResponseField name="Self" type="CodecRegistry">
+  A new codec registry with no registered codecs
+</ResponseField>
+
+**Example:**
+
+```rust
+use symphonia::core::codecs::CodecRegistry;
+
+let mut registry = CodecRegistry::new();
+```
+
+#### register_all
+
+```rust
+pub fn register_all<D: Decoder>(&mut self)
+```
+
+Register all codecs supported by a decoder type. If a codec was previously registered, it will be replaced.
+
+<ParamField path="D" type="Decoder">
+  The decoder type implementing the `Decoder` trait
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::codecs::CodecRegistry;
+use symphonia::codec_vorbis::VorbisDecoder;
+use symphonia::codec_flac::FlacDecoder;
+
+let mut registry = CodecRegistry::new();
+registry.register_all::<VorbisDecoder>();
+registry.register_all::<FlacDecoder>();
+```
+
+#### register
+
+```rust
+pub fn register(&mut self, descriptor: &CodecDescriptor)
+```
+
+Register a single codec descriptor. If the codec was previously registered, it will be replaced.
+
+<ParamField path="descriptor" type="&CodecDescriptor">
+  The codec descriptor to register
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::codecs::{CodecRegistry, CodecDescriptor, CODEC_TYPE_VORBIS};
+
+let descriptor = CodecDescriptor {
+    codec: CODEC_TYPE_VORBIS,
+    short_name: "vorbis",
+    long_name: "Xiph.org Vorbis",
+    inst_func: |params, opts| {
+        // Instantiation logic
+        unimplemented!()
+    },
+};
+
+let mut registry = CodecRegistry::new();
+registry.register(&descriptor);
+```
+
+#### get_codec
+
+```rust
+pub fn get_codec(&self, codec: CodecType) -> Option<&CodecDescriptor>
+```
+
+Get the codec descriptor for a registered codec.
+
+<ParamField path="codec" type="CodecType">
+  The codec type to look up
+</ParamField>
+
+<ResponseField name="Option<&CodecDescriptor>" type="Option<&CodecDescriptor>">
+  The codec descriptor if registered, `None` otherwise
+</ResponseField>
+
+**Example:**
+
+```rust
+use symphonia::core::codecs::CODEC_TYPE_FLAC;
+
+let registry = symphonia::default::get_codecs();
+if let Some(descriptor) = registry.get_codec(CODEC_TYPE_FLAC) {
+    println!("FLAC codec: {}", descriptor.long_name);
+}
+```
+
+#### make
+
+```rust
+pub fn make(
+    &self,
+    params: &CodecParameters,
+    options: &DecoderOptions,
+) -> Result<Box<dyn Decoder>>
+```
+
+Search the registry for a decoder that supports the codec specified in the parameters. If found, instantiate it with the provided parameters and options.
+
+<ParamField path="params" type="&CodecParameters">
+  Codec parameters from the track
+</ParamField>
+
+<ParamField path="options" type="&DecoderOptions">
+  Options for the decoder
+</ParamField>
+
+<ResponseField name="Box<dyn Decoder>" type="Result<Box<dyn Decoder>>">
+  An instantiated decoder, or an error if no suitable decoder was found or the parameters were invalid
+</ResponseField>
+
+**Example:**
+
+```rust
+use symphonia::core::codecs::{DecoderOptions, CodecRegistry};
+
+// Get the default registry with all enabled codecs
+let registry = symphonia::default::get_codecs();
+
+// Get codec parameters from a track
+let track = format.default_track().unwrap();
+
+// Create a decoder for the track
+let decoder_opts = DecoderOptions { verify: false };
+let decoder = registry.make(&track.codec_params, &decoder_opts)?;
+
+// Use the decoder
+let packet = format.next_packet()?;
+let decoded = decoder.decode(&packet)?;
+```
+
+## Default Registry
+
+### get_codecs
+
+```rust
+pub fn get_codecs() -> &'static CodecRegistry
+```
+
+Get the default `CodecRegistry` with all feature-enabled codecs pre-registered. This is a lazy static that's initialized on first call.
+
+<ResponseField name="&CodecRegistry" type="&'static CodecRegistry">
+  The default codec registry
+</ResponseField>
+
+**Example:**
+
+```rust
+use symphonia::default::get_codecs;
+
+let registry = get_codecs();
+let decoder = registry.make(&track.codec_params, &decoder_opts)?;
+```
+
+### register_enabled_codecs
+
+```rust
+pub fn register_enabled_codecs(registry: &mut CodecRegistry)
+```
+
+Register all codecs selected by feature flags on the provided registry. Use this to populate a custom registry with all enabled codecs.
+
+<ParamField path="registry" type="&mut CodecRegistry">
+  The registry to populate
+</ParamField>
+
+**Example:**
+
+```rust
+use symphonia::core::codecs::CodecRegistry;
+use symphonia::default::register_enabled_codecs;
+
+let mut registry = CodecRegistry::new();
+register_enabled_codecs(&mut registry);
+```
+
+## CodecDescriptor
+
+### Definition
+
+```rust
+pub struct CodecDescriptor {
+    pub codec: CodecType,
+    pub short_name: &'static str,
+    pub long_name: &'static str,
+    pub inst_func: fn(&CodecParameters, &DecoderOptions) -> Result<Box<dyn Decoder>>,
+}
+```
+
+Describes a single codec and provides an instantiation function.
+
+<ParamField path="codec" type="CodecType">
+  The codec type identifier
+</ParamField>
+
+<ParamField path="short_name" type="&'static str">
+  Short ASCII-only name (e.g., "flac", "vorbis", "mp3")
+</ParamField>
+
+<ParamField path="long_name" type="&'static str">
+  Longer, descriptive name (e.g., "Free Lossless Audio Codec")
+</ParamField>
+
+<ParamField path="inst_func" type="fn(&CodecParameters, &DecoderOptions) -> Result<Box<dyn Decoder>>">
+  Function to instantiate a decoder for this codec
+</ParamField>
+
+## CodecType Constants
+
+Symphonia defines constants for all supported codec types:
+
+### PCM Codecs
+
+```rust
+CODEC_TYPE_PCM_S8           // PCM signed 8-bit
+CODEC_TYPE_PCM_S16LE        // PCM signed 16-bit little-endian
+CODEC_TYPE_PCM_S16BE        // PCM signed 16-bit big-endian
+CODEC_TYPE_PCM_S24LE        // PCM signed 24-bit little-endian
+CODEC_TYPE_PCM_S24BE        // PCM signed 24-bit big-endian
+CODEC_TYPE_PCM_S32LE        // PCM signed 32-bit little-endian
+CODEC_TYPE_PCM_S32BE        // PCM signed 32-bit big-endian
+CODEC_TYPE_PCM_U8           // PCM unsigned 8-bit
+CODEC_TYPE_PCM_U16LE        // PCM unsigned 16-bit little-endian
+CODEC_TYPE_PCM_U16BE        // PCM unsigned 16-bit big-endian
+CODEC_TYPE_PCM_U24LE        // PCM unsigned 24-bit little-endian
+CODEC_TYPE_PCM_U24BE        // PCM unsigned 24-bit big-endian
+CODEC_TYPE_PCM_U32LE        // PCM unsigned 32-bit little-endian
+CODEC_TYPE_PCM_U32BE        // PCM unsigned 32-bit big-endian
+CODEC_TYPE_PCM_F32LE        // PCM 32-bit float little-endian
+CODEC_TYPE_PCM_F32BE        // PCM 32-bit float big-endian
+CODEC_TYPE_PCM_F64LE        // PCM 64-bit float little-endian
+CODEC_TYPE_PCM_F64BE        // PCM 64-bit float big-endian
+CODEC_TYPE_PCM_ALAW         // PCM A-law (G.711)
+CODEC_TYPE_PCM_MULAW        // PCM Mu-law (G.711)
+```
+
+### ADPCM Codecs
+
+```rust
+CODEC_TYPE_ADPCM_G722       // G.722 ADPCM
+CODEC_TYPE_ADPCM_G726       // G.726 ADPCM
+CODEC_TYPE_ADPCM_G726LE     // G.726 ADPCM little-endian
+CODEC_TYPE_ADPCM_MS         // Microsoft ADPCM
+CODEC_TYPE_ADPCM_IMA_WAV    // ADPCM IMA WAV
+CODEC_TYPE_ADPCM_IMA_QT     // ADPCM IMA QuickTime
+```
+
+### Lossy Codecs
+
+```rust
+CODEC_TYPE_VORBIS           // Vorbis
+CODEC_TYPE_MP1              // MPEG Layer 1
+CODEC_TYPE_MP2              // MPEG Layer 2
+CODEC_TYPE_MP3              // MPEG Layer 3
+CODEC_TYPE_AAC              // Advanced Audio Coding
+CODEC_TYPE_OPUS             // Opus
+CODEC_TYPE_SPEEX            // Speex
+CODEC_TYPE_MUSEPACK         // Musepack
+CODEC_TYPE_ATRAC1           // Adaptive Transform Acoustic Coding
+CODEC_TYPE_ATRAC3           // ATRAC3
+CODEC_TYPE_ATRAC3PLUS       // ATRAC3+
+CODEC_TYPE_ATRAC9           // ATRAC9
+CODEC_TYPE_EAC3             // AC-3, E-AC-3, Dolby Digital
+CODEC_TYPE_AC4              // Dolby AC-4
+CODEC_TYPE_DCA              // DTS Coherent Acoustics
+CODEC_TYPE_WMA              // Windows Media Audio
+```
+
+### Lossless Codecs
+
+```rust
+CODEC_TYPE_FLAC             // Free Lossless Audio Codec
+CODEC_TYPE_WAVPACK          // WavPack
+CODEC_TYPE_MONKEYS_AUDIO    // Monkey's Audio (APE)
+CODEC_TYPE_ALAC             // Apple Lossless Audio Codec
+CODEC_TYPE_TTA              // True Audio
+```
+
+### Null Codec
+
+```rust
+CODEC_TYPE_NULL             // Null/unknown codec
+```
+
+## Complete Example
+
+```rust
+use symphonia::core::codecs::{CodecRegistry, DecoderOptions, CODEC_TYPE_FLAC};
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use symphonia::core::io::MediaSourceStream;
+use std::fs::File;
+
+fn decode_with_registry(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Method 1: Use the default registry
+    let registry = symphonia::default::get_codecs();
+
+    // Method 2: Create a custom registry
+    let mut custom_registry = CodecRegistry::new();
+    
+    // Register only specific codecs
+    #[cfg(feature = "flac")]
+    custom_registry.register_all::<symphonia::codec_flac::FlacDecoder>();
+    
+    #[cfg(feature = "vorbis")]
+    custom_registry.register_all::<symphonia::codec_vorbis::VorbisDecoder>();
+
+    // Method 3: Create and populate with all enabled codecs
+    let mut full_registry = CodecRegistry::new();
+    symphonia::default::register_enabled_codecs(&mut full_registry);
+
+    // Open and probe the file
+    let file = File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    
+    let mut hint = Hint::new();
+    hint.with_extension("flac");
+
+    let probe = symphonia::default::get_probe();
+    let probed = probe.format(
+        &hint,
+        mss,
+        &FormatOptions::default(),
+        &MetadataOptions::default()
+    )?;
+
+    let mut format = probed.format;
+    let track = format.default_track().unwrap();
+
+    // Check if codec is supported
+    if let Some(descriptor) = registry.get_codec(track.codec_params.codec) {
+        println!("Codec: {} ({})", descriptor.long_name, descriptor.short_name);
+    } else {
+        return Err("Unsupported codec".into());
+    }
+
+    // Create decoder using registry
+    let decoder_opts = DecoderOptions { verify: true };
+    let mut decoder = registry.make(&track.codec_params, &decoder_opts)?;
+
+    // Decode packets
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(_) => break,
+        };
+
+        if packet.track_id() != track.id {
+            continue;
+        }
+
+        let decoded = decoder.decode(&packet)?;
+        println!("Decoded {} frames", decoded.frames());
+    }
+
+    Ok(())
+}
+```
+
+## Implementing Custom Decoders
+
+To create a custom decoder and register it:
+
+```rust
+use symphonia::core::codecs::{
+    Decoder, CodecDescriptor, CodecParameters, DecoderOptions,
+    CodecType, decl_codec_type, FinalizeResult
+};
+use symphonia::core::formats::Packet;
+use symphonia::core::audio::AudioBufferRef;
+use symphonia::core::errors::Result;
+
+// Define a custom codec type
+const MY_CODEC: CodecType = decl_codec_type(b"mycd1");
+
+struct MyDecoder {
+    params: CodecParameters,
+    // Decoder state...
+}
+
+impl Decoder for MyDecoder {
+    fn try_new(params: &CodecParameters, options: &DecoderOptions) -> Result<Self> {
+        Ok(MyDecoder {
+            params: params.clone(),
+        })
+    }
+
+    fn supported_codecs() -> &'static [CodecDescriptor] {
+        &[
+            CodecDescriptor {
+                codec: MY_CODEC,
+                short_name: "mycodec",
+                long_name: "My Custom Codec",
+                inst_func: |params, opts| Ok(Box::new(Self::try_new(params, opts)?)),
+            }
+        ]
+    }
+
+    fn reset(&mut self) {
+        // Reset decoder state
+    }
+
+    fn codec_params(&self) -> &CodecParameters {
+        &self.params
+    }
+
+    fn decode(&mut self, packet: &Packet) -> Result<AudioBufferRef<'_>> {
+        // Decode packet and return audio buffer
+        unimplemented!()
+    }
+
+    fn finalize(&mut self) -> FinalizeResult {
+        FinalizeResult::default()
+    }
+
+    fn last_decoded(&self) -> AudioBufferRef<'_> {
+        unimplemented!()
+    }
+}
+
+// Register the decoder
+let mut registry = CodecRegistry::new();
+registry.register_all::<MyDecoder>();
+```
+
+## See Also
+
+- [Decoder](/api/core/decoder) - Audio decoding interface
+- [Probe](/api/core/probe) - Format detection
+- [Core Overview](/api/core/overview) - Core API overview

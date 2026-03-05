@@ -1,0 +1,137 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Symphonia",
+  "projectDescription": "Pure Rust audio decoding and media demuxing library supporting AAC, FLAC, MP3, Vorbis, and more",
+  "theme": "aspen",
+  "primaryColor": "#242b2c",
+  "lightColor": "#040404",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/formats-and-codecs",
+              "concepts/audio-primitives",
+              "concepts/media-sources"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/decoding-audio",
+              "guides/working-with-metadata",
+              "guides/gapless-playback",
+              "guides/format-detection",
+              "guides/custom-codecs"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "resources/supported-formats",
+              "resources/supported-codecs",
+              "resources/performance",
+              "resources/examples",
+              "resources/faq"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core",
+            "pages": [
+              "api/core/overview",
+              "api/core/probe",
+              "api/core/format-reader",
+              "api/core/decoder",
+              "api/core/codec-registry"
+            ]
+          },
+          {
+            "group": "Audio",
+            "pages": [
+              "api/audio/audio-buffer",
+              "api/audio/sample-buffer",
+              "api/audio/signal-specs"
+            ]
+          },
+          {
+            "group": "IO",
+            "pages": [
+              "api/io/media-source",
+              "api/io/media-source-stream"
+            ]
+          },
+          {
+            "group": "Codecs",
+            "pages": [
+              "api/codecs/aac",
+              "api/codecs/flac",
+              "api/codecs/mp3",
+              "api/codecs/vorbis",
+              "api/codecs/alac",
+              "api/codecs/pcm"
+            ]
+          },
+          {
+            "group": "Formats",
+            "pages": [
+              "api/formats/mp4",
+              "api/formats/ogg",
+              "api/formats/mkv",
+              "api/formats/wav",
+              "api/formats/aiff"
+            ]
+          },
+          {
+            "group": "Metadata",
+            "pages": [
+              "api/metadata/id3",
+              "api/metadata/vorbis-comment"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Pure Rust audio decoding with no unsafe code",
+    "Support for 15+ audio codecs including AAC, FLAC, MP3, Vorbis, ALAC",
+    "Demuxing for MP4, MKV, OGG, WAV, AIFF, and CAF containers",
+    "ID3v1/v2 and Vorbis Comment metadata reading",
+    "Gapless playback support",
+    "Automatic format and codec detection",
+    "Modular architecture with feature flags",
+    "High-performance with optional SIMD optimizations"
+  ],
+  "publicApiSurface": [
+    "symphonia::core::probe::Probe",
+    "symphonia::core::formats::FormatReader",
+    "symphonia::core::codecs::Decoder",
+    "symphonia::core::codecs::CodecRegistry",
+    "symphonia::core::io::MediaSourceStream",
+    "symphonia::core::audio::AudioBuffer",
+    "symphonia::core::audio::SampleBuffer",
+    "symphonia::default::get_probe()",
+    "symphonia::default::get_codecs()",
+    "FormatReader::next_packet()",
+    "Decoder::decode()",
+    "Probe::format()"
+  ]
+}
